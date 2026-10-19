@@ -1,0 +1,1012 @@
+/**
+ * ============================================================================
+ * EVENTPAY DATABASE & OFFLINE MOCK ENGINE (js/db.js)
+ * โครงการ: EventPay (โครงการระบบโอนและเงินสด รับเงิน-จ่ายเงิน งานคอนเสิร์ต)
+ * พิกัด: D:\BillingApp\Antigravity\EventPay\js\db.js
+ * สถาปัตยกรรม: LocalStorage / Memory Store พร้อม Mock Data & Atomic Operations
+ * มาตรฐาน: PROJECT_ARCHITECTURE.md (Section 4 & 16), SKILL.md, Notifications.md
+ * ============================================================================
+ */
+
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) {
+    module.exports = factory();
+  } else {
+    root.EventPayDB = factory();
+  }
+}(typeof self !== 'undefined' ? self : this, function () {
+  'use strict';
+
+  const DB_PREFIX = 'eventpay_db_';
+  const DB_VERSION = '1.0.0';
+
+  class EventPayDatabase {
+    constructor() {
+      this.isMemoryOnly = false;
+      this.memoryStorage = {};
+      this.isMasterConnected = false;
+      this.masterServerUrl = '';
+      this.syncListeners = [];
+      this._sseActive = false;
+      this._testStorage();
+      this.init();
+      this._initNetworkSync();
+    }
+
+    _testStorage() {
+      try {
+        if (typeof localStorage !== 'undefined') {
+          const testKey = '__ep_test__';
+          localStorage.setItem(testKey, '1');
+          localStorage.removeItem(testKey);
+          this.isMemoryOnly = false;
+        } else {
+          this.isMemoryOnly = true;
+        }
+      } catch (e) {
+        this.isMemoryOnly = true;
+      }
+    }
+
+    _getItem(key) {
+      if (this.isMemoryOnly) {
+        return this.memoryStorage[key] || null;
+      }
+      try {
+        return localStorage.getItem(DB_PREFIX + key);
+      } catch (e) {
+        return this.memoryStorage[key] || null;
+      }
+    }
+
+    _setItem(key, value) {
+      if (this.isMemoryOnly) {
+        this.memoryStorage[key] = value;
+        return;
+      }
+      try {
+        localStorage.setItem(DB_PREFIX + key, value);
+      } catch (e) {
+        this.memoryStorage[key] = value;
+      }
+    }
+
+    _removeItem(key) {
+      if (this.isMemoryOnly) {
+        delete this.memoryStorage[key];
+        return;
+      }
+      try {
+        localStorage.removeItem(DB_PREFIX + key);
+      } catch (e) {
+        delete this.memoryStorage[key];
+      }
+    }
+
+    init() {
+      const initialized = this._getItem('system_initialized');
+      if (!initialized) {
+        this.seedDefaultData();
+      }
+    }
+
+    _initNetworkSync() {
+      if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+        const origin = window.location.origin;
+        if (origin && origin.startsWith('http')) {
+          this.masterServerUrl = origin;
+          this.checkMasterConnection();
+        }
+      }
+    }
+
+    async checkMasterConnection() {
+      if (!this.masterServerUrl && typeof window !== 'undefined') {
+        this.masterServerUrl = window.location.origin.startsWith('http') ? window.location.origin : 'http://localhost:8080';
+      }
+      try {
+        const res = await fetch(`${this.masterServerUrl}/api/status`, { cache: 'no-cache' });
+        if (res.ok) {
+          const data = await res.json();
+          this.isMasterConnected = true;
+          this._startSSE();
+          return { connected: true, data };
+        }
+      } catch (e) {
+        this.isMasterConnected = false;
+      }
+      return { connected: false };
+    }
+
+    _startSSE() {
+      if (typeof window !== 'undefined' && typeof EventSource !== 'undefined' && !this._sseActive) {
+        try {
+          const sse = new EventSource(`${this.masterServerUrl}/api/events/live-stream`);
+          this._sseActive = true;
+          sse.onmessage = (event) => {
+            try {
+              const parsed = JSON.parse(event.data);
+              this.syncListeners.forEach(fn => {
+                try { fn(parsed); } catch (e) {}
+              });
+            } catch (e) {}
+          };
+          sse.onerror = () => {
+            this._sseActive = false;
+            sse.close();
+          };
+        } catch (e) {}
+      }
+    }
+
+    onSyncEvent(callback) {
+      if (typeof callback === 'function') {
+        this.syncListeners.push(callback);
+      }
+    }
+
+    /**
+     * รีเซ็ตฐานข้อมูลและโหลดข้อมูลเริ่มต้นใหม่ทั้งหมด
+     */
+    resetDatabase() {
+      const keysToClear = [
+        'events', 'ticket_tiers', 'tickets', 'wristbands',
+        'orders', 'payments', 'cash_sessions', 'cash_payouts',
+        'security_incidents', 'audit_logs', 'gates', 'staff',
+        'system_initialized', 'db_version'
+      ];
+      keysToClear.forEach(k => this._removeItem(k));
+      this.memoryStorage = {};
+      this.seedDefaultData();
+      return true;
+    }
+
+    /**
+     * โหลดข้อมูลเริ่มต้น (Mock Seed Data) ตามมาตรฐาน CPCSEP
+     */
+    seedDefaultData() {
+      const now = new Date().toISOString();
+
+      // 1. งานคอนเสิร์ต
+      const events = [
+        {
+          event_id: 'EVT-CONCERT-001',
+          name: 'THEP-APAI & LILIN SUPREME MEGA CONCERT 2026',
+          venue: 'IMPACT ARENA HALL 1-4, BANGKOK',
+          start_date: '2026-10-25T18:00:00Z',
+          end_date: '2026-10-25T23:59:00Z',
+          total_capacity: 7500,
+          status: 'ACTIVE'
+        }
+      ];
+
+      // 2. โซนและประเภทบัตร
+      const ticket_tiers = [
+        { tier_id: 'TIER-VIP', name: 'VIP Front Row (Zone A)', price: 5000.00, quota: 500, sold: 150 },
+        { tier_id: 'TIER-REG', name: 'Regular Seated (Zone B)', price: 2500.00, quota: 2000, sold: 820 },
+        { tier_id: 'TIER-STD', name: 'General Standing (Zone C)', price: 1200.00, quota: 5000, sold: 2100 }
+      ];
+
+      // 3. ประตูตรวจบัตร (Gates)
+      const gates = [
+        { gate_id: 'GATE-01', name: 'Gate 1 (North Kiosk - Zone A/VIP)', kiosk_id: 'KIOSK-N01', status: 'ONLINE' },
+        { gate_id: 'GATE-02', name: 'Gate 2 (South Kiosk - Zone B/C)', kiosk_id: 'KIOSK-S02', status: 'ONLINE' },
+        { gate_id: 'GATE-03', name: 'Gate 3 (East Kiosk - Zone C FastTrack)', kiosk_id: 'KIOSK-E03', status: 'ONLINE' }
+      ];
+
+      // 4. เจ้าหน้าที่ (Staff)
+      const staff = [
+        { staff_id: 'USER-THEP', name: 'เทพอภัย (ผัวจ๋า)', role: 'ADMIN', pin: '9999' },
+        { staff_id: 'USER-LILIN', name: 'ลิลิน (เมียรัก)', role: 'CHIEF_AUDITOR', pin: '8888' },
+        { staff_id: 'USER-STAFF-01', name: 'แคชเชียร์สมใจ', role: 'CASHIER', pin: '1111' },
+        { staff_id: 'USER-GATE-01', name: 'การ์ดประตูสมบัติ', role: 'GATE_GUARD', pin: '2222' }
+      ];
+
+      // 5. รอบกะเงินสดเริ่มต้น (Active Cash Session)
+      const cash_sessions = [
+        {
+          shift_id: 'SHIFT-20261017-01',
+          cashier_id: 'USER-STAFF-01',
+          cashier_name: 'แคชเชียร์สมใจ',
+          desk_id: 'DESK-BOXOFFICE-01',
+          opening_float: 10000.00, // เงินทอนเริ่มต้น 10,000 บาท
+          cash_sales: 7500.00,    // ยอดขายเงินสดสะสม
+          cash_payouts: 500.00,   // รายจ่ายเงินสดสะสม
+          expected_cash: 17000.00,
+          counted_cash: 0.00,
+          variance: 0.00,
+          status: 'OPEN',
+          opened_at: now,
+          closed_at: null
+        }
+      ];
+
+      // 6. รายจ่ายเงินสดตัวอย่าง (Cash Payouts)
+      const cash_payouts = [
+        {
+          payout_id: 'PAYOUT-001',
+          shift_id: 'SHIFT-20261017-01',
+          amount: 500.00,
+          reason: 'ค่าน้ำดื่มทีมงานรักษาความปลอดภัยหน้าประตู',
+          payee: 'ร้านสะดวกซื้อหน้าฮอลล์',
+          approved_by: 'USER-THEP',
+          receipt_url: '',
+          created_at: now
+        }
+      ];
+
+      // 7. บัตรชมคอนเสิร์ตตัวอย่างสำหรับทดสอบจริงทันที (Pre-generated Test Tickets)
+      const tickets = [
+        {
+          ticket_id: 'TKT-VIP-001',
+          order_id: 'ORD-20261017-001',
+          tier_id: 'TIER-VIP',
+          tier_name: 'VIP Front Row (Zone A)',
+          attendee_name: 'นายสมชาย ใจดี',
+          attendee_phone: '081-234-5678',
+          qr_code_hash: 'EP-TKT-VIP-001-A9F7',
+          wristband_id: null,
+          face_photo_url: null,
+          gate_status: 'NOT_ENTERED', // ยังไม่เข้างาน
+          entry_count: 0,
+          entry_history: [],
+          is_void: false,
+          created_at: now
+        },
+        {
+          ticket_id: 'TKT-REG-002',
+          order_id: 'ORD-20261017-002',
+          tier_id: 'TIER-REG',
+          tier_name: 'Regular Seated (Zone B)',
+          attendee_name: 'นางสาวสมหญิง ยิ้มสวย',
+          attendee_phone: '089-876-5432',
+          qr_code_hash: 'EP-TKT-REG-002-B8E3',
+          wristband_id: null,
+          face_photo_url: null,
+          gate_status: 'NOT_ENTERED',
+          entry_count: 0,
+          entry_history: [],
+          is_void: false,
+          created_at: now
+        },
+        {
+          ticket_id: 'TKT-STD-003',
+          order_id: 'ORD-20261017-003',
+          tier_id: 'TIER-STD',
+          tier_name: 'General Standing (Zone C)',
+          attendee_name: 'นายมานะ อดทน',
+          attendee_phone: '082-111-2233',
+          qr_code_hash: 'EP-TKT-STD-003-C7D1',
+          wristband_id: null,
+          face_photo_url: null,
+          gate_status: 'NOT_ENTERED',
+          entry_count: 0,
+          entry_history: [],
+          is_void: false,
+          created_at: now
+        },
+        // บัตรตัวอย่างที่เข้างานแล้ว (เพื่อทดสอบการสแกนซ้ำหรือตรวจจับสวมสิทธิ์)
+        {
+          ticket_id: 'TKT-VIP-004',
+          order_id: 'ORD-20261017-004',
+          tier_id: 'TIER-VIP',
+          tier_name: 'VIP Front Row (Zone A)',
+          attendee_name: 'นายวิชัย สุจริต',
+          attendee_phone: '085-555-9999',
+          qr_code_hash: 'EP-TKT-VIP-004-D6C5',
+          wristband_id: 'WB-9901',
+          face_photo_url: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP...',
+          gate_status: 'ENTERED', // เข้างานแล้ว
+          entry_count: 1,
+          entry_history: [
+            {
+              timestamp: now,
+              gate_id: 'GATE-01',
+              action: 'FIRST_ENTRY',
+              wristband_id: 'WB-9901'
+            }
+          ],
+          is_void: false,
+          created_at: now
+        },
+        // บัตรตัวอย่างที่ถูกยกเลิก/โมฆะ (เพื่อทดสอบ Reject บัตรโมฆะ)
+        {
+          ticket_id: 'TKT-VOID-999',
+          order_id: 'ORD-20261017-000',
+          tier_id: 'TIER-STD',
+          tier_name: 'General Standing (Zone C)',
+          attendee_name: 'ผู้ไม่ประสงค์ดี (บัตรโมฆะ)',
+          attendee_phone: '000-000-0000',
+          qr_code_hash: 'EP-TKT-VOID-999-VOID',
+          wristband_id: null,
+          face_photo_url: null,
+          gate_status: 'NOT_ENTERED',
+          entry_count: 0,
+          entry_history: [],
+          is_void: true, // โมฆะ
+          created_at: now
+        }
+      ];
+
+      // 8. ริสต์แบนด์ที่ผูกแล้ว
+      const wristbands = [
+        {
+          wristband_id: 'WB-9901',
+          assigned_ticket_id: 'TKT-VIP-004',
+          status: 'ACTIVE',
+          assigned_at: now
+        }
+      ];
+
+      // 9. บันทึกคำสั่งซื้อตัวอย่าง
+      const orders = [
+        {
+          order_id: 'ORD-20261017-001',
+          customer_name: 'นายสมชาย ใจดี',
+          customer_phone: '081-234-5678',
+          total_amount: 5000.00,
+          payment_method: 'CASH',
+          payment_status: 'PAID',
+          shift_id: 'SHIFT-20261017-01',
+          created_at: now
+        }
+      ];
+
+      const payments = [
+        {
+          payment_id: 'PAY-20261017-001',
+          order_id: 'ORD-20261017-001',
+          channel: 'CASH',
+          amount: 5000.00,
+          bank_ref: 'CASH-RECEIPT-001',
+          slip_url: '',
+          verified_by: 'USER-STAFF-01',
+          status: 'CONFIRMED',
+          created_at: now
+        }
+      ];
+
+      const audit_logs = [
+        {
+          log_id: 'LOG-INIT-001',
+          timestamp: now,
+          action: 'SYSTEM_INITIALIZATION',
+          category: 'SYSTEM',
+          operator_id: 'USER-THEP',
+          details: 'EventPay Database initialized with standard concert seed data.',
+          ip_or_device: 'Console'
+        }
+      ];
+
+      const security_incidents = [];
+
+      this._saveCollection('events', events);
+      this._saveCollection('ticket_tiers', ticket_tiers);
+      this._saveCollection('gates', gates);
+      this._saveCollection('staff', staff);
+      this._saveCollection('cash_sessions', cash_sessions);
+      this._saveCollection('cash_payouts', cash_payouts);
+      this._saveCollection('tickets', tickets);
+      this._saveCollection('wristbands', wristbands);
+      this._saveCollection('orders', orders);
+      this._saveCollection('payments', payments);
+      this._saveCollection('audit_logs', audit_logs);
+      this._saveCollection('security_incidents', security_incidents);
+
+      this._setItem('system_initialized', 'true');
+      this._setItem('db_version', DB_VERSION);
+    }
+
+    _loadCollection(name) {
+      const raw = this._getItem(name);
+      if (!raw) return [];
+      try {
+        return JSON.parse(raw);
+      } catch (e) {
+        console.error(`[EventPay DB] Error parsing collection ${name}:`, e);
+        return [];
+      }
+    }
+
+    _saveCollection(name, data) {
+      this._setItem(name, JSON.stringify(data));
+    }
+
+    // ==========================================
+    // GENERIC CRUD OPERATIONS
+    // ==========================================
+
+    getAll(collection, filterFn = null) {
+      const items = this._loadCollection(collection);
+      if (typeof filterFn === 'function') {
+        return items.filter(filterFn);
+      }
+      return items;
+    }
+
+    get(collection, id, keyField = null) {
+      const items = this._loadCollection(collection);
+      const key = keyField || this._getDefaultKeyField(collection);
+      return items.find(item => String(item[key]) === String(id)) || null;
+    }
+
+    insert(collection, record) {
+      const items = this._loadCollection(collection);
+      items.push(record);
+      this._saveCollection(collection, items);
+      return record;
+    }
+
+    update(collection, id, updates, keyField = null) {
+      const items = this._loadCollection(collection);
+      const key = keyField || this._getDefaultKeyField(collection);
+      const index = items.findIndex(item => String(item[key]) === String(id));
+      if (index === -1) return null;
+
+      items[index] = { ...items[index], ...updates };
+      this._saveCollection(collection, items);
+      return items[index];
+    }
+
+    delete(collection, id, keyField = null) {
+      const items = this._loadCollection(collection);
+      const key = keyField || this._getDefaultKeyField(collection);
+      const index = items.findIndex(item => String(item[key]) === String(id));
+      if (index === -1) return false;
+
+      items.splice(index, 1);
+      this._saveCollection(collection, items);
+      return true;
+    }
+
+    _getDefaultKeyField(collection) {
+      const keyMap = {
+        events: 'event_id',
+        ticket_tiers: 'tier_id',
+        gates: 'gate_id',
+        staff: 'staff_id',
+        cash_sessions: 'shift_id',
+        cash_payouts: 'payout_id',
+        tickets: 'ticket_id',
+        wristbands: 'wristband_id',
+        orders: 'order_id',
+        payments: 'payment_id',
+        audit_logs: 'log_id',
+        security_incidents: 'incident_id'
+      };
+      return keyMap[collection] || 'id';
+    }
+
+    // ==========================================
+    // AUDIT LOG ENGINE (IMMUTABLE LOGS)
+    // ==========================================
+
+    logAudit(action, category, details, operatorId = 'SYSTEM', device = 'Kiosk') {
+      const logRecord = {
+        log_id: 'LOG-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4).toUpperCase(),
+        timestamp: new Date().toISOString(),
+        action: action,
+        category: category,
+        operator_id: operatorId,
+        details: typeof details === 'object' ? JSON.stringify(details) : String(details),
+        ip_or_device: device
+      };
+      this.insert('audit_logs', logRecord);
+      return logRecord;
+    }
+
+    // ==========================================
+    // GATE 3-POINT VALIDATION & SECURITY ENGINE
+    // ==========================================
+
+    /**
+     * ระบบตรวจสอบสิทธิ์ 3 ประสานหน้าประตูคอนเสิร์ต (Atomic Gate Validation Engine)
+     * กฎเหล็ก:
+     * 1. ตั๋วต้องมีอยู่จริง ไม่เป็นโมฆะ (is_void === false)
+     * 2. เข้าครั้งแรก (NOT_ENTERED):
+     *    - บันทึกรหัสริสต์แบนด์ (wristband_id)
+     *    - บันทึกรูปถ่ายใบหน้า (face_photo_url)
+     *    - เปลี่ยนสถานะเป็น ENTERED
+     * 3. เข้าซ้ำ (ENTERED):
+     *    - รหัสริสต์แบนด์ต้องตรงกับที่ผูกไว้ครั้งแรกเป๊ะๆ 100%
+     *    - หากไม่ตรง -> REJECT: WRISTBAND_MISMATCH พร้อมลั่นไซเรน!
+     * @param {string} qrCode รหัส QR หรือ Ticket ID
+     * @param {string} wristbandId รหัสริสต์แบนด์ที่สแกน
+     * @param {string} facePhotoUrl รูปถ่ายใบหน้า Base64 จากกล้อง
+     * @param {string} gateId รหัสประตู เช่น GATE-01
+     * @param {string} operatorId รหัสเจ้าหน้าที่
+     * @returns {{ success: boolean, code: string, message: string, ticket: object|null, incident: object|null }}
+     */
+    validateGateScan(qrCode, wristbandId, facePhotoUrl, gateId = 'GATE-01', operatorId = 'USER-GATE-01') {
+      const cleanQr = (qrCode || '').trim();
+      const cleanWb = (wristbandId || '').trim();
+      const now = new Date().toISOString();
+
+      // ค้นหาตั๋วจาก qr_code_hash หรือ ticket_id
+      const tickets = this.getAll('tickets');
+      const ticket = tickets.find(t => t.qr_code_hash === cleanQr || t.ticket_id === cleanQr);
+
+      // [กรณีที่ 1]: ไม่พบข้อมูลตั๋วในระบบ
+      if (!ticket) {
+        const incident = this._recordIncident('INVALID_QR', null, cleanWb, gateId, facePhotoUrl, `รหัส QR Code '${cleanQr}' ไม่มีในระบบ`);
+        return {
+          success: false,
+          code: 'INVALID_QR',
+          message: 'ไม่พบข้อมูลบัตรในระบบ! โปรดตรวจสอบตั๋วกับฝ่ายจำหน่ายบัตร',
+          ticket: null,
+          incident: incident
+        };
+      }
+
+      // [กรณีที่ 2]: บัตรถูกระงับ/เป็นโมฆะ (Void Ticket)
+      if (ticket.is_void) {
+        const incident = this._recordIncident('VOID_TICKET', ticket.ticket_id, cleanWb, gateId, facePhotoUrl, `บัตร ${ticket.ticket_id} ถูกระงับเป็นโมฆะ`);
+        return {
+          success: false,
+          code: 'VOID_TICKET',
+          message: 'บัตรใบนี้ถูกยกเลิก/เป็นโมฆะ! ห้ามเข้างานเด็ดขาด',
+          ticket: ticket,
+          incident: incident
+        };
+      }
+
+      // [กรณีที่ 3]: เข้างานครั้งแรก (FIRST_ENTRY)
+      if (ticket.gate_status === 'NOT_ENTERED') {
+        if (!cleanWb) {
+          return {
+            success: false,
+            code: 'MISSING_WRISTBAND',
+            message: 'กรุณาสแกนหรือระบุรหัสริสต์แบนด์เพื่อผูกกับบัตร',
+            ticket: ticket,
+            incident: null
+          };
+        }
+
+        // ตรวจสอบว่ารหัสริสต์แบนด์นี้ ถูกนำไปผูกกับบัตรใบอื่นแล้วหรือไม่ (ป้องกันริสต์แบนด์ซ้ำ)
+        const existingWb = this.get('wristbands', cleanWb);
+        if (existingWb && existingWb.assigned_ticket_id && existingWb.assigned_ticket_id !== ticket.ticket_id) {
+          const incident = this._recordIncident('WRISTBAND_ALREADY_USED', ticket.ticket_id, cleanWb, gateId, facePhotoUrl, `ริสต์แบนด์ '${cleanWb}' ถูกใช้ผูกกับตั๋ว '${existingWb.assigned_ticket_id}' ไปแล้ว`);
+          return {
+            success: false,
+            code: 'WRISTBAND_ALREADY_USED',
+            message: `รหัสริสต์แบนด์ '${cleanWb}' ถูกใช้งานกับบัตรใบอื่นแล้ว! สวมสิทธิ์ริสต์แบนด์`,
+            ticket: ticket,
+            incident: incident
+          };
+        }
+
+        // ผูกข้อมูลริสต์แบนด์และรูปถ่ายใบหน้าเข้ากับตั๋ว
+        const updatedHistory = ticket.entry_history ? [...ticket.entry_history] : [];
+        updatedHistory.push({
+          timestamp: now,
+          gate_id: gateId,
+          operator_id: operatorId,
+          action: 'FIRST_ENTRY',
+          wristband_id: cleanWb
+        });
+
+        const updatedTicket = this.update('tickets', ticket.ticket_id, {
+          wristband_id: cleanWb,
+          face_photo_url: facePhotoUrl || ticket.face_photo_url,
+          gate_status: 'ENTERED',
+          entry_count: (ticket.entry_count || 0) + 1,
+          entry_history: updatedHistory,
+          last_entry_at: now,
+          last_gate_id: gateId
+        });
+
+        // บันทึกลงตารางริสต์แบนด์
+        if (existingWb) {
+          this.update('wristbands', cleanWb, { assigned_ticket_id: ticket.ticket_id, status: 'ACTIVE', assigned_at: now });
+        } else {
+          this.insert('wristbands', { wristband_id: cleanWb, assigned_ticket_id: ticket.ticket_id, status: 'ACTIVE', assigned_at: now });
+        }
+
+        this.logAudit('GATE_FIRST_ENTRY', 'GATE', `บัตร ${ticket.ticket_id} ลงทะเบียนเข้างานครั้งแรกสำเร็จ ผูกริสต์แบนด์ ${cleanWb}`, operatorId);
+
+        return {
+          success: true,
+          code: 'FIRST_ENTRY_PASS',
+          mode: 'FIRST_ENTRY',
+          message: 'ลงทะเบียนเข้างานครั้งแรกสำเร็จ! ยินดีต้อนรับเข้าสู่งานคอนเสิร์ต',
+          ticket: updatedTicket,
+          incident: null
+        };
+      }
+
+      // [กรณีที่ 4]: เข้างานซ้ำ (RE_ENTRY)
+      if (ticket.gate_status === 'ENTERED' || ticket.gate_status === 'EXITED') {
+        // หากไม่มีการระบุริสต์แบนด์ หรือริสต์แบนด์ไม่ตรงกับที่ผูกไว้ครั้งแรก
+        if (!cleanWb || cleanWb !== ticket.wristband_id) {
+          const incident = this._recordIncident(
+            'WRISTBAND_MISMATCH',
+            ticket.ticket_id,
+            cleanWb,
+            gateId,
+            facePhotoUrl,
+            `ริสต์แบนด์ที่สแกน (${cleanWb || 'ไม่ได้ระบุ'}) ไม่ตรงกับที่ผูกไว้ (${ticket.wristband_id}) ส่อเจตนาสวมสิทธิ์!`
+          );
+
+          return {
+            success: false,
+            code: 'WRISTBAND_MISMATCH',
+            message: `ตรวจพบการสวมสิทธิ์! ริสต์แบนด์ไม่ตรงกับที่ผูกไว้ครั้งแรก (เดิม: ${ticket.wristband_id} / สแกน: ${cleanWb || 'ไม่มี'})`,
+            ticket: ticket,
+            incident: incident
+          };
+        }
+
+        // ริสต์แบนด์ตรง อนุญาตให้เข้างานซ้ำได้
+        const updatedHistory = ticket.entry_history ? [...ticket.entry_history] : [];
+        updatedHistory.push({
+          timestamp: now,
+          gate_id: gateId,
+          operator_id: operatorId,
+          action: 'RE_ENTRY',
+          wristband_id: cleanWb
+        });
+
+        const updatedTicket = this.update('tickets', ticket.ticket_id, {
+          gate_status: 'ENTERED',
+          entry_count: (ticket.entry_count || 0) + 1,
+          entry_history: updatedHistory,
+          last_entry_at: now,
+          last_gate_id: gateId
+        });
+
+        this.logAudit('GATE_RE_ENTRY', 'GATE', `บัตร ${ticket.ticket_id} เข้างานซ้ำผ่านเรียบร้อย (ครั้งที่ ${updatedTicket.entry_count})`, operatorId);
+
+        return {
+          success: true,
+          code: 'RE_ENTRY_PASS',
+          mode: 'RE_ENTRY',
+          message: `เข้างานซ้ำผ่านเรียบร้อย (ครั้งที่ ${updatedTicket.entry_count}) ยินดีต้อนรับกลับเข้าสู่งาน`,
+          ticket: updatedTicket,
+          incident: null
+        };
+      }
+
+      return {
+        success: false,
+        code: 'UNKNOWN_STATUS',
+        message: 'สถานะบัตรไม่ถูกต้อง โปรดติดต่อจุดบริการลูกค้า',
+        ticket: ticket,
+        incident: null
+      };
+    }
+
+    _recordIncident(type, ticketId, wristbandId, gateId, snapshotPhoto, notes) {
+      const incident = {
+        incident_id: 'INC-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4).toUpperCase(),
+        incident_type: type,
+        ticket_id: ticketId,
+        wristband_id: wristbandId,
+        gate_id: gateId,
+        snapshot_photo: snapshotPhoto || '',
+        notes: notes,
+        created_at: new Date().toISOString()
+      };
+      this.insert('security_incidents', incident);
+      this.logAudit('SECURITY_INCIDENT', 'SECURITY', `[${type}] ${notes} (Gate: ${gateId})`, 'GATE_SYSTEM');
+      return incident;
+    }
+
+    // ==========================================
+    // CASH & TICKETING TRANSACTION ENGINE
+    // ==========================================
+
+    /**
+     * สร้างคำสั่งซื้อและออกบัตรคอนเสิร์ต
+     * หากชำระด้วยเงินสด ระบบจะอัปเดตยอดเงินสดสะสมของกะปัจจุบันอัตโนมัติ
+     */
+    createOrder(orderData, cashierId = 'USER-STAFF-01') {
+      const now = new Date().toISOString();
+      const orderId = 'ORD-' + Date.now();
+      const items = orderData.items || []; // [{ tier_id: 'TIER-VIP', quantity: 2, attendee_names: ['สมชาย', 'สมพร'] }]
+
+      let totalAmount = 0;
+      const createdTickets = [];
+
+      items.forEach((item, itemIdx) => {
+        const tier = this.get('ticket_tiers', item.tier_id);
+        const price = tier ? tier.price : 0;
+        const qty = item.quantity || 1;
+        totalAmount += (price * qty);
+
+        for (let i = 0; i < qty; i++) {
+          const attendeeName = (item.attendee_names && item.attendee_names[i]) ? item.attendee_names[i] : (orderData.customer_name || 'ผู้เข้าชม');
+          const ticketSeq = Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substr(2, 4).toUpperCase();
+          const ticketId = `TKT-${item.tier_id.replace('TIER-', '')}-${ticketSeq}`;
+          const qrHash = `EP-${ticketId}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
+
+          const ticketRecord = {
+            ticket_id: ticketId,
+            order_id: orderId,
+            tier_id: item.tier_id,
+            tier_name: tier ? tier.name : 'บัตรคอนเสิร์ต',
+            attendee_name: attendeeName,
+            attendee_phone: orderData.customer_phone || '',
+            qr_code_hash: qrHash,
+            wristband_id: null,
+            face_photo_url: null,
+            gate_status: 'NOT_ENTERED',
+            entry_count: 0,
+            entry_history: [],
+            is_void: false,
+            created_at: now
+          };
+
+          this.insert('tickets', ticketRecord);
+          createdTickets.push(ticketRecord);
+        }
+      });
+
+      // ตรวจสอบความถูกต้องของสลิปโอนเงิน (Slip Verification & Duplicate Check)
+      let initialPaymentStatus = 'PAID';
+      let slipStatus = 'CONFIRMED';
+      let slipNotes = '';
+
+      if (orderData.payment_method === 'TRANSFER') {
+        const cleanRef = (orderData.bank_ref || '').trim();
+        if (cleanRef) {
+          const existingPayments = this.getAll('payments');
+          const isDup = existingPayments.some(p => p.bank_ref && p.bank_ref.toUpperCase() === cleanRef.toUpperCase());
+          if (isDup) {
+            initialPaymentStatus = 'PENDING_VERIFICATION';
+            slipStatus = 'PENDING_VERIFICATION';
+            slipNotes = `ตรวจพบสลิปเลขอ้างอิงซ้ำ '${cleanRef}'`;
+            this._recordIncident('DUPLICATE_SLIP', null, null, 'CASHIER-POS', '', `ตรวจพบสลิปซ้ำ '${cleanRef}' ในคำสั่งซื้อ ${orderId}`);
+            // ล็อกบัตรเป็นโมฆะชั่วคราวจนกว่าจะได้รับการยืนยันยอดเงิน
+            createdTickets.forEach(t => {
+              this.update('tickets', t.ticket_id, { is_void: true });
+              t.is_void = true;
+            });
+          }
+        }
+      }
+
+      const orderRecord = {
+        order_id: orderId,
+        customer_name: orderData.customer_name || 'ลูกค้าทั่วไป',
+        customer_phone: orderData.customer_phone || '',
+        total_amount: totalAmount,
+        payment_method: orderData.payment_method || 'CASH', // CASH | TRANSFER
+        payment_status: initialPaymentStatus,
+        shift_id: orderData.shift_id || 'SHIFT-20261017-01',
+        created_at: now
+      };
+      this.insert('orders', orderRecord);
+
+      // สร้างบันทึกการชำระเงิน
+      const paymentRecord = {
+        payment_id: 'PAY-' + Date.now(),
+        order_id: orderId,
+        channel: orderData.payment_method || 'CASH',
+        amount: totalAmount,
+        bank_ref: orderData.bank_ref || (orderData.payment_method === 'CASH' ? `CASH-${orderId}` : ''),
+        slip_url: orderData.slip_url || '',
+        verified_by: cashierId,
+        status: slipStatus,
+        notes: slipNotes,
+        created_at: now
+      };
+      this.insert('payments', paymentRecord);
+
+      // หากเป็นเงินสด ให้อัปเดตกะเงินสดที่เปิดอยู่ทันที
+      if (orderData.payment_method === 'CASH') {
+        const shifts = this.getAll('cash_sessions', s => s.status === 'OPEN');
+        if (shifts.length > 0) {
+          const currentShift = shifts[0];
+          const newCashSales = (currentShift.cash_sales || 0) + totalAmount;
+          const newExpected = (currentShift.opening_float || 0) + newCashSales - (currentShift.cash_payouts || 0);
+
+          this.update('cash_sessions', currentShift.shift_id, {
+            cash_sales: newCashSales,
+            expected_cash: newExpected
+          });
+        }
+      }
+
+      this.logAudit('CREATE_ORDER', 'FINANCE', `สร้างคำสั่งซื้อ ${orderId} ยอดรวม ฿${totalAmount} (${orderData.payment_method}) จำนวนบัตร ${createdTickets.length} ใบ`, cashierId);
+
+      return {
+        order: orderRecord,
+        payment: paymentRecord,
+        tickets: createdTickets
+      };
+    }
+
+    /**
+     * ตรวจสอบความถูกต้องของสลิปโอนเงิน (Slip Verification API)
+     * กฎ: ตรวจสอบความซ้ำซ้อนของเลขที่อ้างอิงธนาคาร (Bank Ref Uniqueness)
+     */
+    verifySlip(bankRef, expectedAmount = null) {
+      const cleanRef = (bankRef || '').trim();
+      if (!cleanRef) {
+        return { valid: false, code: 'MISSING_REF', status: 'PENDING_VERIFICATION', message: 'ไม่ได้ระบุเลขอ้างอิงธนาคาร' };
+      }
+      const existing = this.getAll('payments').find(p => p.bank_ref && p.bank_ref.toUpperCase() === cleanRef.toUpperCase());
+      if (existing) {
+        return {
+          valid: false,
+          code: 'DUPLICATE_REF',
+          status: 'PENDING_VERIFICATION',
+          message: `สลิปเลขอ้างอิง '${cleanRef}' ถูกใช้งานไปแล้วในระบบ (คำสั่งซื้อ ${existing.order_id})`,
+          existingPayment: existing
+        };
+      }
+      return {
+        valid: true,
+        code: 'VALID_SLIP',
+        status: 'CONFIRMED',
+        message: 'สลิปถูกต้อง ไม่พบประวัติซ้ำซ้อน'
+      };
+    }
+
+    /**
+     * ยืนยันการชำระเงินโอนหลังฝ่ายการเงินตรวจสอบสลิปผ่าน (Confirm Verified Payment)
+     */
+    confirmPayment(paymentId, verifierId = 'ADMIN-SUPER') {
+      const payment = this.get('payments', paymentId);
+      if (!payment) return null;
+      const updatedPayment = this.update('payments', paymentId, { status: 'CONFIRMED', verified_by: verifierId });
+      this.update('orders', payment.order_id, { payment_status: 'PAID' });
+      // ปลดล็อกตั๋วที่ผูกกับคำสั่งซื้อนี้ให้เข้างานได้
+      const tickets = this.getAll('tickets', t => t.order_id === payment.order_id);
+      tickets.forEach(t => {
+        this.update('tickets', t.ticket_id, { is_void: false });
+      });
+      this.logAudit('CONFIRM_PAYMENT', 'FINANCE', `ฝ่ายการเงินยืนยันการชำระเงิน ${paymentId} (Order: ${payment.order_id}) สำเร็จ`, verifierId);
+      return updatedPayment;
+    }
+
+    /**
+     * บันทึกรายการจ่ายเงินสดจากเก๊ะ (Cash Payout / Expense)
+     */
+    recordCashPayout(shiftId, amount, reason, payee, approvedBy, receiptUrl = '') {
+      const now = new Date().toISOString();
+      const payoutId = 'PAYOUT-' + Date.now();
+
+      const payoutRecord = {
+        payout_id: payoutId,
+        shift_id: shiftId,
+        amount: parseFloat(amount) || 0,
+        reason: reason,
+        payee: payee,
+        approved_by: approvedBy,
+        receipt_url: receiptUrl,
+        created_at: now
+      };
+      this.insert('cash_payouts', payoutRecord);
+
+      // อัปเดตกะเงินสด
+      const shift = this.get('cash_sessions', shiftId);
+      if (shift) {
+        const newPayouts = (shift.cash_payouts || 0) + payoutRecord.amount;
+        const newExpected = (shift.opening_float || 0) + (shift.cash_sales || 0) - newPayouts;
+        this.update('cash_sessions', shiftId, {
+          cash_payouts: newPayouts,
+          expected_cash: newExpected
+        });
+      }
+
+      this.logAudit('CASH_PAYOUT', 'FINANCE', `จ่ายเงินสด ฿${payoutRecord.amount} เหตุผล: ${reason} (อนุมัติโดย: ${approvedBy})`, approvedBy);
+      return payoutRecord;
+    }
+
+    /**
+     * คำนวณส่วนต่างเงินสดและการปิดกะ (Shift Reconciliation Math)
+     * Expected Cash = Opening Float + Cash Sales - Cash Payouts
+     * Variance = Counted Cash - Expected Cash
+     */
+    calculateShiftVariance(shiftId, countedCash) {
+      const shift = this.get('cash_sessions', shiftId);
+      if (!shift) return null;
+
+      const openingFloat = shift.opening_float || 0;
+      const cashSales = shift.cash_sales || 0;
+      const cashPayouts = shift.cash_payouts || 0;
+      const expectedCash = openingFloat + cashSales - cashPayouts;
+      const counted = parseFloat(countedCash) || 0;
+      const variance = Math.round((counted - expectedCash) * 100) / 100;
+
+      return {
+        shiftId: shiftId,
+        openingFloat: openingFloat,
+        cashSales: cashSales,
+        cashPayouts: cashPayouts,
+        expectedCash: expectedCash,
+        countedCash: counted,
+        variance: variance,
+        isBalanced: Math.abs(variance) < 0.01,
+        status: variance === 0 ? 'BALANCED' : (variance > 0 ? 'OVER' : 'SHORT')
+      };
+    }
+
+    /**
+     * ดำเนินการปิดกะ (Close Shift)
+     */
+    closeShift(shiftId, countedCash, cashierId = 'USER-STAFF-01') {
+      const recon = this.calculateShiftVariance(shiftId, countedCash);
+      if (!recon) throw new Error('ไม่พบข้อมูลกะที่ระบุ');
+
+      const now = new Date().toISOString();
+      const updatedShift = this.update('cash_sessions', shiftId, {
+        counted_cash: recon.countedCash,
+        variance: recon.variance,
+        status: 'CLOSED',
+        closed_at: now
+      });
+
+      this.logAudit('CLOSE_SHIFT', 'FINANCE', `ปิดกะ ${shiftId} ยอดนับจริง: ฿${recon.countedCash} ยอดที่ควรมี: ฿${recon.expectedCash} ส่วนต่าง: ฿${recon.variance}`, cashierId);
+
+      return {
+        shift: updatedShift,
+        reconciliation: recon
+      };
+    }
+
+    /**
+     * สรุปตัวเลขแดชบอร์ดแบบเรียลไทม์ (Dashboard Real-time Aggregation)
+     */
+    getDashboardSummary() {
+      const orders = this.getAll('orders');
+      const tickets = this.getAll('tickets');
+      const incidents = this.getAll('security_incidents');
+      const shifts = this.getAll('cash_sessions');
+
+      let totalSales = 0;
+      let cashSales = 0;
+      let transferSales = 0;
+
+      orders.forEach(o => {
+        if (o.payment_status === 'PAID') {
+          totalSales += (o.total_amount || 0);
+          if (o.payment_method === 'CASH') {
+            cashSales += (o.total_amount || 0);
+          } else {
+            transferSales += (o.total_amount || 0);
+          }
+        }
+      });
+
+      const attendeesInside = tickets.filter(t => t.gate_status === 'ENTERED').length;
+      const totalTicketsSold = tickets.length;
+      const openShift = shifts.find(s => s.status === 'OPEN') || null;
+
+      return {
+        totalSales: totalSales,
+        cashSales: cashSales,
+        transferSales: transferSales,
+        totalTicketsSold: totalTicketsSold,
+        attendeesInside: attendeesInside,
+        attendeesRemaining: totalTicketsSold - attendeesInside,
+        totalIncidents: incidents.length,
+        openShift: openShift
+      };
+    }
+
+    /**
+     * ส่งออกฐานข้อมูลทั้งหมดเป็น JSON สำรองข้อมูล
+     */
+    exportJSON() {
+      const collections = [
+        'events', 'ticket_tiers', 'gates', 'staff',
+        'cash_sessions', 'cash_payouts', 'tickets',
+        'wristbands', 'orders', 'payments',
+        'audit_logs', 'security_incidents'
+      ];
+      const backup = {
+        exportedAt: new Date().toISOString(),
+        version: DB_VERSION,
+        data: {}
+      };
+      collections.forEach(col => {
+        backup.data[col] = this.getAll(col);
+      });
+      return JSON.stringify(backup, null, 2);
+    }
+  }
+
+  return new EventPayDatabase();
+}));

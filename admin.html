@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#080d1a">
+  <title>EventPay Admin - ศูนย์บัญชาการและตรวจสอบการเงินความปลอดภัยคอนเสิร์ต</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="ep-admin-body">
+
+  <!-- ADMIN HEADER -->
+  <header class="ep-admin-header">
+    <div class="ep-header-inner">
+      <div class="ep-brand">
+        <div class="ep-logo-badge" style="background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%); color: #fff;">
+          ADMIN HUB
+        </div>
+        <div class="ep-event-title">
+          <h1 style="color: #fff; font-size: 1.15rem; font-weight: 800;">
+            EVENTPAY AUDIT & FINANCIAL COMMAND CENTER
+          </h1>
+          <p style="color: #a5b4fc; font-size: 0.8rem;">
+            ผู้ดูแลระบบ: <strong>เทพอภัย (ผัวจ๋า)</strong> &amp; <strong>ลิลิน (Chief Auditor)</strong> | Real-Time Sync
+          </p>
+        </div>
+      </div>
+
+      <nav class="ep-nav-links">
+        <span class="ep-nav-btn" style="background: #0f172a; border-color: #312e81; font-size: 0.78rem;" id="adminSyncStatus">
+          🟢 Auto-Sync สดทุก 3 วินาที
+        </span>
+        <span class="ep-nav-btn" style="background: rgba(0, 229, 255, 0.12); border-color: var(--accent-cyan); color: var(--accent-cyan); font-size: 0.78rem;" id="adminNetModeBadge">
+          📡 ตรวจหาเครื่องแม่ข่าย LAN...
+        </span>
+        <a href="index.html" class="ep-nav-btn" target="_blank">
+          🎫 หน้าจำหน่ายบัตร
+        </a>
+        <a href="kiosk.html" class="ep-nav-btn btn-kiosk" target="_blank">
+          🚪 ประตู Kiosk ทางเข้า
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- MAIN ADMIN WORKSPACE -->
+  <main class="ep-main" style="max-width: 1500px; padding: 20px 16px;">
+
+    <!-- TAB NAVIGATION -->
+    <nav class="ep-admin-tab-nav">
+      <button type="button" class="ep-admin-tab-btn active" id="tabBtnDashboard" onclick="switchAdminTab('dashboard')">
+        📊 ภาพรวมสด (Live Dashboard)
+      </button>
+      <button type="button" class="ep-admin-tab-btn" id="tabBtnIncidents" onclick="switchAdminTab('incidents')">
+        🛡️ บันทึกความปลอดภัย &amp; ภาพผู้สวมสิทธิ์ (Incidents)
+      </button>
+      <button type="button" class="ep-admin-tab-btn" id="tabBtnFinance" onclick="switchAdminTab('finance')">
+        💰 บัญชีแยกประเภท &amp; กะเงินสด (Financial Ledger)
+      </button>
+      <button type="button" class="ep-admin-tab-btn" id="tabBtnAudit" onclick="switchAdminTab('audit')">
+        📜 ประวัติย้อนหลังถาวร (Immutable Audit Trail)
+      </button>
+      <button type="button" class="ep-admin-tab-btn" id="tabBtnDatabase" onclick="switchAdminTab('database')">
+        💾 สำรองข้อมูล &amp; บำรุงรักษา (DB Backup)
+      </button>
+    </nav>
+
+    <!-- ======================================================================
+         TAB 1: LIVE DASHBOARD
+         ====================================================================== -->
+    <section id="adminViewDashboard">
+      <!-- KPI CARDS -->
+      <div class="ep-kpi-grid">
+        <div class="ep-kpi-card">
+          <div class="ep-kpi-title">ผู้เข้าชมในฮอลล์ขณะนี้ (Inside)</div>
+          <div class="ep-kpi-val" id="kpiInsideAttendees" style="color: var(--accent-green);">0</div>
+          <div class="ep-kpi-sub" id="kpiInsidePercent">0% ของบัตรที่จำหน่าย</div>
+        </div>
+
+        <div class="ep-kpi-card">
+          <div class="ep-kpi-title">บัตรที่ยังไม่เข้างาน (Outside)</div>
+          <div class="ep-kpi-val" id="kpiOutsideAttendees" style="color: var(--accent-cyan);">0</div>
+          <div class="ep-kpi-sub">รอการสแกนผ่านประตู</div>
+        </div>
+
+        <div class="ep-kpi-card">
+          <div class="ep-kpi-title">ยอดจำหน่ายบัตรทั้งหมด</div>
+          <div class="ep-kpi-val" id="kpiTotalSales" style="color: var(--accent-gold);">฿0.00</div>
+          <div class="ep-kpi-sub" id="kpiTotalTickets">0 ใบทั้งหมด</div>
+        </div>
+
+        <div class="ep-kpi-card">
+          <div class="ep-kpi-title">รายรับเงินสด (Cash Sales)</div>
+          <div class="ep-kpi-val" id="kpiCashSales" style="color: #38bdf8;">฿0.00</div>
+          <div class="ep-kpi-sub">สะสมในกะแคชเชียร์</div>
+        </div>
+
+        <div class="ep-kpi-card">
+          <div class="ep-kpi-title">รายรับเงินโอน (Thai QR)</div>
+          <div class="ep-kpi-val" id="kpiTransferSales" style="color: #a78bfa;">฿0.00</div>
+          <div class="ep-kpi-sub">ตรวจสอบเข้าบัญชีแล้ว</div>
+        </div>
+
+        <div class="ep-kpi-card" style="border-color: #ef4444;">
+          <div class="ep-kpi-title">ตรวจพบสวมสิทธิ์ / บัตรผิดปกติ</div>
+          <div class="ep-kpi-val" id="kpiTotalIncidents" style="color: var(--accent-red);">0</div>
+          <div class="ep-kpi-sub" style="color: #f87171;">บันทึกหลักฐานครบ 100%</div>
+        </div>
+      </div>
+
+      <!-- HALL CAPACITY & PROGRESS -->
+      <div class="ep-card">
+        <div class="ep-card-header">
+          <div class="ep-card-title">
+            <span>🏟️ สัดส่วนความจุผู้ชมในฮอลล์คอนเสิร์ต (Hall Capacity: 7,500 ที่นั่ง)</span>
+          </div>
+          <span id="capacityPercentText" style="font-weight: 800; color: var(--accent-gold);">0%</span>
+        </div>
+        <div style="background: #0d1527; height: 20px; border-radius: 10px; overflow: hidden; position: relative;">
+          <div id="capacityProgressBar" style="background: linear-gradient(90deg, #10b981 0%, #06b6d4 100%); width: 0%; height: 100%; transition: width 0.5s ease;"></div>
+        </div>
+
+        <!-- ZONE PROGRESS BREAKDOWN -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 20px;" id="zoneBreakdownContainer">
+          <!-- Dynamically populated -->
+        </div>
+      </div>
+
+      <!-- LIVE SCAN ACTIVITY FEED -->
+      <div class="ep-card">
+        <div class="ep-card-header">
+          <div class="ep-card-title">
+            <span>⚡ ลำดับเหตุการณ์สแกนหน้าประตูล่าสุด (Live Gate Activity Stream)</span>
+          </div>
+          <button type="button" class="ep-nav-btn" style="font-size: 0.75rem; padding: 4px 10px;" onclick="renderDashboardData()">🔄 รีเฟรชทันที</button>
+        </div>
+        <div class="ep-table-container">
+          <table class="ep-admin-table">
+            <thead>
+              <tr>
+                <th>เวลา</th>
+                <th>ประตู</th>
+                <th>ผู้เข้าชม</th>
+                <th>โซนที่นั่ง</th>
+                <th>รหัสบัตร</th>
+                <th>ริสต์แบนด์</th>
+                <th>รูปแบบ</th>
+                <th>สถานะ</th>
+              </tr>
+            </thead>
+            <tbody id="liveGateFeedBody">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         TAB 2: SECURITY INCIDENTS & SUSPECT PHOTOS
+         ====================================================================== -->
+    <section id="adminViewIncidents" style="display: none;">
+      <div class="ep-card">
+        <div class="ep-card-header">
+          <div class="ep-card-title">
+            <span>🚨 บันทึกเหตุการณ์ความปลอดภัยและการสวมสิทธิ์ (Security Incidents Investigation)</span>
+          </div>
+          <span style="font-size: 0.8rem; color: var(--accent-red);">มีภาพถ่ายใบหน้าผู้ต้องสงสัยทุกรายการ</span>
+        </div>
+
+        <div class="ep-table-container">
+          <table class="ep-admin-table">
+            <thead>
+              <tr>
+                <th>ภาพถ่ายใบหน้า</th>
+                <th>รหัสเหตุการณ์</th>
+                <th>วัน-เวลา</th>
+                <th>ประตู</th>
+                <th>ประเภทความผิด</th>
+                <th>รหัสบัตร</th>
+                <th>ริสต์แบนด์</th>
+                <th>รายละเอียดข้อผิดพลาด</th>
+                <th>การดำเนินการ</th>
+              </tr>
+            </thead>
+            <tbody id="incidentsTableBody">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         TAB 3: FINANCIAL LEDGER & SHIFT CLOSING
+         ====================================================================== -->
+    <section id="adminViewFinance" style="display: none;">
+      <!-- SHIFT CLOSING SESSIONS -->
+      <div class="ep-card">
+        <div class="ep-card-header">
+          <div class="ep-card-title">
+            <span>💵 ประวัติกะเงินสดและการปิดกะแคชเชียร์ (Cash Drawer Sessions &amp; Variance)</span>
+          </div>
+          <span style="font-size: 0.8rem; color: var(--accent-gold);">สูตรกระทบยอดเป๊ะ 100%</span>
+        </div>
+
+        <div class="ep-table-container">
+          <table class="ep-admin-table">
+            <thead>
+              <tr>
+                <th>รหัสกะ</th>
+                <th>แคชเชียร์</th>
+                <th>จุดขาย</th>
+                <th>เงินทอนเริ่มต้น</th>
+                <th>ยอดขายสด</th>
+                <th>รายจ่ายสด</th>
+                <th>ยอดที่ควรมี</th>
+                <th>ยอดนับจริง</th>
+                <th>ส่วนต่าง</th>
+                <th>สถานะ</th>
+                <th>เวลาเปิด - ปิดกะ</th>
+              </tr>
+            </thead>
+            <tbody id="shiftsTableBody">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ORDERS TRANSACTION LEDGER -->
+      <div class="ep-card">
+        <div class="ep-card-header">
+          <div class="ep-card-title">
+            <span>🧾 รายการคำสั่งซื้อทั้งหมด (Orders Transaction Ledger)</span>
+          </div>
+          <span style="font-size: 0.8rem; color: var(--accent-cyan);">ห้ามลบรายการ (No Hard Delete)</span>
+        </div>
+
+        <div class="ep-table-container">
+          <table class="ep-admin-table">
+            <thead>
+              <tr>
+                <th>รหัสคำสั่งซื้อ</th>
+                <th>วัน-เวลา</th>
+                <th>ชื่อผู้สั่งซื้อ</th>
+                <th>เบอร์โทร</th>
+                <th>ยอดเงินรวม</th>
+                <th>ช่องทาง</th>
+                <th>เลขอ้างอิงชำระ</th>
+                <th>สถานะ</th>
+              </tr>
+            </thead>
+            <tbody id="ordersTableBody">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         TAB 4: IMMUTABLE AUDIT TRAIL
+         ====================================================================== -->
+    <section id="adminViewAudit" style="display: none;">
+      <div class="ep-card">
+        <div class="ep-card-header">
+          <div class="ep-card-title">
+            <span>📜 บันทึกประวัติการกระทำย้อนหลังถาวร (Immutable System Audit Trail)</span>
+          </div>
+          <input type="text" class="ep-input" id="auditSearchInput" placeholder="🔍 ค้นหา Audit Log..." style="max-width: 280px; padding: 6px 12px; font-size: 0.85rem;" oninput="filterAuditLogs()">
+        </div>
+
+        <div class="ep-table-container">
+          <table class="ep-admin-table">
+            <thead>
+              <tr>
+                <th>Log ID</th>
+                <th>วัน-เวลา</th>
+                <th>หมวดหมู่</th>
+                <th>การกระทำ (Action)</th>
+                <th>ผู้ดำเนินการ</th>
+                <th>รายละเอียด</th>
+                <th>อุปกรณ์ / Device</th>
+              </tr>
+            </thead>
+            <tbody id="auditLogsTableBody">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         TAB 5: DATABASE MAINTENANCE & JSON EXPORT
+         ====================================================================== -->
+    <section id="adminViewDatabase" style="display: none;">
+      <div class="ep-card">
+        <div class="ep-card-header">
+          <div class="ep-card-title">
+            <span>💾 การสำรองข้อมูลและการกู้คืน (Database Backup &amp; Disaster Recovery)</span>
+          </div>
+          <span style="font-size: 0.8rem; color: var(--accent-green);">มาตรฐานความปลอดภัย CPCSEP v1.0.0</span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
+          <!-- BACKUP EXPORT -->
+          <div style="background: #0d1527; padding: 24px; border-radius: 8px; border: 1px solid var(--border-color);">
+            <h3 style="font-size: 1.05rem; color: var(--accent-gold); margin-bottom: 8px;">📥 ส่งออกสำรองข้อมูลฐานข้อมูล JSON</h3>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px; line-height: 1.6;">
+              ดาวน์โหลดข้อมูลครบทั้ง 28 ตาราง (บัตร, คำสั่งซื้อ, การเงิน, ริสต์แบนด์, ประวัติการสแกน, หลักฐานภาพถ่าย) ในรูปแบบ JSON ไฟล์เดียว สำหรับเก็บเป็นหลักฐานสำรองหลังจบคอนเสิร์ต
+            </p>
+            <button type="button" class="ep-btn-submit" style="padding: 12px 20px; font-size: 0.95rem; width: 100%; max-width: 300px;" onclick="exportFullDatabaseJSON()">
+              📥 ดาวน์โหลด JSON Backup ทันที
+            </button>
+          </div>
+
+          <!-- CLOUD SYNC STATUS (AUTOMATIC BACKGROUND) -->
+          <div style="background: #0d1527; padding: 24px; border-radius: 8px; border: 1px solid var(--accent-cyan);">
+            <h3 style="font-size: 1.05rem; color: var(--accent-cyan); margin-bottom: 8px;">☁️ ระบบซิงก์ข้อมูลคลาวด์อัตโนมัติ (Firebase Cloud Auto-Sync)</h3>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px; line-height: 1.6;">
+              ระบบเชื่อมต่อและซิงก์ข้อมูลยอดขาย ตั๋ว และภาพถ่ายขึ้น Google Firebase Cloud อัตโนมัติในพื้นหลัง ปลอดภัยสูงสุด 100% ฝังระบบในตัว ไม่ต้องกรอกรหัสใดๆ หน้างาน
+            </p>
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+              <span class="ep-badge ep-badge-pass" style="font-size: 0.82rem; padding: 6px 12px;">
+                🟢 คลาวด์พร้อมทำงาน (eventpay-concert)
+              </span>
+              <button type="button" class="ep-nav-btn" style="background: #16a34a; color: #fff; padding: 8px 16px; font-size: 0.85rem;" onclick="triggerCloudSyncFromAdmin()">
+                ☁️ ซิงก์ขึ้น Cloud ทันที
+              </button>
+            </div>
+            <div id="firebaseSyncStatusText" style="font-size: 0.8rem; margin-top: 10px; color: var(--accent-gold);"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ========================================================================
+       MODAL: PHOTO ZOOM / INCIDENT EVIDENCE INSPECT
+       ======================================================================== -->
+  <div class="ep-modal-backdrop" id="modalPhotoZoom">
+    <div class="ep-modal" style="max-width: 480px; text-align: center;">
+      <div class="ep-modal-header">
+        <h3 class="ep-modal-title" id="zoomModalTitle">🔍 ภาพถ่ายหลักฐานยืนยันตัวตน</h3>
+        <button class="ep-modal-close" onclick="closeModal('modalPhotoZoom')">&times;</button>
+      </div>
+      <div class="ep-modal-body">
+        <img id="zoomModalImg" src="" alt="Enlarged" style="width: 100%; max-height: 380px; object-fit: contain; border-radius: 8px; border: 2px solid var(--border-color); background: #000;">
+        <div id="zoomModalDetails" style="font-size: 0.85rem; color: var(--text-muted); margin-top: 14px; text-align: left;">
+          <!-- Details -->
+        </div>
+      </div>
+      <div class="ep-modal-footer">
+        <button type="button" class="ep-nav-btn" onclick="closeModal('modalPhotoZoom')">ปิดหน้าต่าง</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CORE SCRIPTS -->
+  <script src="js/qrcode.min.js"></script>
+  <script src="js/audioAlertEngine.js"></script>
+  <script src="js/hardwareBridge.js"></script>
+  <script src="js/db.js"></script>
+  <script src="js/firebaseAdapter.js"></script>
+  <script src="js/admin.js"></script>
+</body>
+</html>

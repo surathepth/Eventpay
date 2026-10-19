@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>จองบัตรคอนเสิร์ตออนไลน์ | EventPay Official Booking</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    /* สไตล์ปรับแต่งเฉพาะหน้าพอร์ทัลลูกค้าจองออนไลน์ (Mobile-First) */
+    .ep-booking-container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 16px;
+      width: 100%;
+    }
+    .ep-hero-banner {
+      background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 50%, #1e293b 100%);
+      border: 1px solid var(--accent-cyan);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      margin-bottom: 24px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 10px 30px rgba(6, 182, 212, 0.2);
+    }
+    .ep-hero-banner::after {
+      content: "";
+      position: absolute;
+      top: -50%;
+      right: -20%;
+      width: 250px;
+      height: 250px;
+      background: radial-gradient(circle, rgba(245, 158, 11, 0.2) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .ep-hero-title {
+      font-size: 1.6rem;
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 8px;
+      letter-spacing: 0.5px;
+    }
+    .ep-hero-subtitle {
+      font-size: 0.95rem;
+      color: var(--accent-cyan);
+      margin-bottom: 12px;
+    }
+    .ep-step-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow-sm);
+    }
+    .ep-step-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding-bottom: 12px;
+    }
+    .ep-step-num {
+      width: 32px;
+      height: 32px;
+      background: var(--accent-gold);
+      color: #000;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 1rem;
+    }
+    .ep-step-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    .ep-tier-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .ep-tier-item {
+      background: #0d1527;
+      border: 2px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 16px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+    .ep-tier-item:hover, .ep-tier-item.selected {
+      border-color: var(--accent-gold);
+      background: #141f38;
+      box-shadow: 0 4px 14px rgba(245, 158, 11, 0.25);
+    }
+    .ep-tier-item.selected::before {
+      content: "✓ เลือกแล้ว";
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: var(--accent-gold);
+      color: #000;
+      font-size: 0.72rem;
+      font-weight: 800;
+      padding: 2px 8px;
+      border-radius: 12px;
+    }
+    .ep-tier-name {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 6px;
+    }
+    .ep-tier-price {
+      font-size: 1.35rem;
+      font-weight: 800;
+      color: var(--accent-gold);
+      margin-bottom: 8px;
+    }
+    .ep-tier-desc {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+    .ep-qty-control {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 12px;
+      background: #060b17;
+      padding: 6px 12px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-color);
+    }
+    .ep-qty-btn {
+      width: 32px;
+      height: 32px;
+      background: #1e293b;
+      border: 1px solid var(--border-color);
+      color: #fff;
+      border-radius: 6px;
+      font-size: 1.2rem;
+      font-weight: 800;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+    }
+    .ep-qty-btn:active {
+      transform: scale(0.92);
+      background: var(--accent-cyan);
+      color: #000;
+    }
+    .ep-qty-display {
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: #fff;
+    }
+    .ep-promptpay-box {
+      background: #070d1a;
+      border: 2px dashed var(--accent-cyan);
+      border-radius: var(--radius-md);
+      padding: 20px;
+      text-align: center;
+      margin-top: 16px;
+    }
+    .ep-qr-display {
+      width: 190px;
+      height: 190px;
+      margin: 14px auto;
+      background: #fff;
+      padding: 10px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    }
+    .ep-success-section {
+      display: none;
+      background: #0d1e1c;
+      border: 2px solid var(--accent-green);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      text-align: center;
+      margin-top: 20px;
+      animation: fadeIn 0.4s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(15px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @media print {
+      body * {
+        visibility: hidden;
+      }
+      #bookingIssuedTicketsArea, #bookingIssuedTicketsArea * {
+        visibility: visible;
+      }
+      #bookingIssuedTicketsArea {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header class="ep-header">
+    <div class="ep-header-inner">
+      <div class="ep-brand">
+        <div class="ep-logo-badge">EVENTPAY</div>
+        <div class="ep-event-title">
+          <h1 id="bookingEventName">CONCERT EVENT 2026</h1>
+          <span style="font-size: 0.75rem; color: var(--accent-gold);" id="bookingVenue">Impact Arena | กำลังโหลดข้อมูล...</span>
+        </div>
+      </div>
+      <div>
+        <span class="ep-badge ep-badge-pass" style="font-size: 0.8rem; padding: 6px 12px;">
+          🟢 ระบบจองตั๋วออนไลน์พร้อมใช้ (24 ชม.)
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTAINER -->
+  <main class="ep-booking-container">
+
+    <!-- HERO BANNER -->
+    <div class="ep-hero-banner">
+      <div style="display: inline-block; background: rgba(6, 182, 212, 0.15); border: 1px solid var(--accent-cyan); color: var(--accent-cyan); padding: 4px 14px; border-radius: 20px; font-size: 0.78rem; font-weight: 700; margin-bottom: 10px;">
+        🎟️ OFFICIAL ONLINE TICKETING PORTAL
+      </div>
+      <h2 class="ep-hero-title">จองบัตรชมคอนเสิร์ตและรับตั๋วทันที</h2>
+      <p class="ep-hero-subtitle">สะดวก รวดเร็ว ปลอดภัย ออกบัตร e-Ticket QR Code และใบเสร็จรับเงินในขั้นตอนเดียว</p>
+      <div style="font-size: 0.82rem; color: var(--text-muted);">
+        ✨ 1 สิทธิ์ตั๋ว = 1 คิวอาร์โค้ด = 1 คน (สแกนรับสายรัดข้อมือริสต์แบนด์ที่หน้าประตูวันงาน)
+      </div>
+    </div>
+
+    <!-- BOOKING FORM AREA -->
+    <div id="bookingFormSection">
+      
+      <!-- STEP 1: SELECT TICKET TIER -->
+      <section class="ep-step-card">
+        <div class="ep-step-header">
+          <div class="ep-step-num">1</div>
+          <div>
+            <div class="ep-step-title">เลือกโซนที่นั่งและจำนวนบัตร</div>
+            <div style="font-size: 0.78rem; color: var(--text-muted);">สามารถเลือกโซนและระบุจำนวนที่ต้องการได้</div>
+          </div>
+        </div>
+
+        <div class="ep-tier-grid" id="bookingTierGrid">
+          <!-- Dynamically populated by js/booking.js -->
+        </div>
+
+        <div style="background: #080e1c; padding: 14px 18px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+          <div>
+            <span style="font-size: 0.85rem; color: var(--text-muted);">จำนวนบัตรรวม:</span>
+            <strong id="bookingTotalCount" style="font-size: 1.15rem; color: #fff; margin-left: 6px;">0 ใบ</strong>
+          </div>
+          <div>
+            <span style="font-size: 0.85rem; color: var(--text-muted);">ยอดชำระสุทธิ:</span>
+            <strong id="bookingTotalAmount" style="font-size: 1.45rem; color: var(--accent-gold); margin-left: 8px;">฿0.00</strong>
+          </div>
+        </div>
+      </section>
+
+      <!-- STEP 2: ATTENDEE INFORMATION -->
+      <section class="ep-step-card">
+        <div class="ep-step-header">
+          <div class="ep-step-num">2</div>
+          <div>
+            <div class="ep-step-title">ข้อมูลผู้สั่งซื้อและผู้ถือบัตร</div>
+            <div style="font-size: 0.78rem; color: var(--text-muted);">ชื่อนี้จะถูกระบุลงบนใบเสร็จรับเงินและบัตร e-Ticket QR Code</div>
+          </div>
+        </div>
+
+        <div class="ep-form-group">
+          <label class="ep-form-label">ชื่อ - นามสกุล ผู้สั่งซื้อ (Buyer Name) <span class="text-red">*</span></label>
+          <input type="text" id="bookingCustName" class="ep-input" placeholder="เช่น นายสมเกียรติ สุขสมบูรณ์" required>
+        </div>
+
+        <div class="ep-form-group">
+          <label class="ep-form-label">เบอร์โทรศัพท์มือถือ (Mobile Phone) <span class="text-red">*</span></label>
+          <input type="tel" id="bookingCustPhone" class="ep-input" placeholder="เช่น 081-987-6543" required>
+        </div>
+
+        <!-- รายชื่อผู้ถือบัตรย่อย (Dynamic Attendee Inputs) -->
+        <div id="bookingAttendeeContainer" style="margin-top: 14px;"></div>
+      </section>
+
+      <!-- STEP 3: PROMPTPAY PAYMENT & SLIP VERIFICATION -->
+      <section class="ep-step-card">
+        <div class="ep-step-header">
+          <div class="ep-step-num">3</div>
+          <div>
+            <div class="ep-step-title">ชำระเงินผ่านพร้อมเพย์ (PromptPay QR) & แนบสลิป</div>
+            <div style="font-size: 0.78rem; color: var(--text-muted);">สแกนจ่ายยอดตรงเป๊ะ และระบบจะตรวจสอบสลิปอัตโนมัติ</div>
+          </div>
+        </div>
+
+        <div class="ep-promptpay-box">
+          <div style="font-size: 0.85rem; color: var(--accent-cyan); font-weight: 700; letter-spacing: 0.5px;">
+            🇹🇭 THAI QR PAYMENT / PROMPTPAY
+          </div>
+          <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 2px;">
+            สแกนด้วยแอปพลิเคชันธนาคารทุกธนาคาร (SCB, KBANK, KTB, BBL, TTB, ออมสิน)
+          </div>
+
+          <!-- QR HOLDER -->
+          <div id="bookingPromptPayQr" class="ep-qr-display">
+            <!-- Rendered by QRCode -->
+          </div>
+
+          <div style="font-size: 0.85rem; color: var(--text-muted);">
+            ยอดเงินที่ต้องโอน: <strong id="bookingPromptPayTotal" style="color: var(--accent-gold); font-size: 1.3rem;">฿0.00</strong>
+          </div>
+          <div style="font-size: 0.78rem; color: var(--text-dim); margin-top: 4px;">
+            บัญชี: คอนเสิร์ต EventPay 2026 | พร้อมเพย์: 081-234-5678
+          </div>
+        </div>
+
+        <!-- SLIP INPUT & VERIFICATION -->
+        <div style="margin-top: 20px; background: #070d1a; padding: 16px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+          <label class="ep-form-label" style="font-size: 0.88rem; color: #fff;">
+            📄 ระบุ "เลขอ้างอิงสลิปธนาคาร" หรือ แนบภาพสลิป (Bank Transaction Ref) <span class="text-red">*</span>
+          </label>
+          <div style="font-size: 0.76rem; color: var(--text-muted); margin-bottom: 8px;">
+            (ตัวเลขรหัสทำรายการ 18-25 หลักที่ปรากฏบนสลิปโอนเงินของท่าน เช่น 202610191234567890)
+          </div>
+
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <input type="text" id="bookingBankRefInput" class="ep-input" style="flex: 2; min-width: 200px;" placeholder="กรอกเลขอ้างอิงสลิป 18-25 หลัก">
+            <button type="button" class="ep-nav-btn" style="background: #0284c7; color: #fff; padding: 8px 14px; font-size: 0.82rem;" onclick="simulateFastSlip()">
+              ⚡ ทดสอบแนบสลิปจำลอง
+            </button>
+          </div>
+          <div id="bookingSlipStatus" style="font-size: 0.8rem; margin-top: 8px; color: var(--accent-gold);"></div>
+        </div>
+
+        <!-- SUBMIT BUTTON -->
+        <div style="margin-top: 24px;">
+          <button type="button" id="btnSubmitBooking" class="ep-btn-submit" style="padding: 16px; font-size: 1.15rem; width: 100%; box-shadow: 0 4px 18px rgba(245, 158, 11, 0.4);" onclick="submitBookingOrder()" disabled>
+            ⚡ ยืนยันการจองและออกตั๋ว e-Ticket ทันที
+          </button>
+          <div style="font-size: 0.76rem; color: var(--text-dim); text-align: center; margin-top: 8px;">
+            🔒 ข้อมูลได้รับการเข้ารหัสความปลอดภัย 100% สลิปซ้ำจะถูกปฏิเสธโดยอัตโนมัติ
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- SUCCESS AREA: ISSUED TICKETS & RECEIPT (REVEALED AFTER SUBMISSION) -->
+    <div id="bookingSuccessSection" class="ep-success-section">
+      <div style="font-size: 2.5rem; margin-bottom: 6px;">🎉</div>
+      <h3 style="color: var(--accent-green); font-size: 1.5rem; font-weight: 800; margin-bottom: 6px;">
+        การจองบัตรสำเร็จเรียบร้อยแล้ว!
+      </h3>
+      <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 20px;">
+        ระบบได้ทำการบันทึกข้อมูลการเงิน ออกใบเสร็จ และสร้างบัตรคิวอาร์โค้ด (e-Ticket) สำหรับเข้างานคอนเสิร์ตเรียบร้อยแล้ว
+      </p>
+
+      <!-- TICKETS AREA (READY FOR SCREENSHOT & PRINT) -->
+      <div id="bookingIssuedTicketsArea" style="margin-bottom: 24px;">
+        <!-- Dynamically rendered ticket cards -->
+      </div>
+
+      <!-- RECEIPT SUMMARY CARD -->
+      <div style="background: #070d1a; border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 18px; margin-bottom: 24px; text-align: left;">
+        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 8px; margin-bottom: 10px;">
+          <strong style="color: var(--accent-gold);">🧾 สรุปใบเสร็จรับเงิน (Payment Receipt)</strong>
+          <span id="succReceiptId" style="font-family: monospace; color: var(--accent-cyan);">-</span>
+        </div>
+        <div style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.8;">
+          <div>ชื่อผู้สั่งซื้อ: <strong id="succCustName" style="color: #fff;">-</strong> (<span id="succCustPhone">-</span>)</div>
+          <div>ยอดชำระสุทธิ: <strong id="succTotalAmount" style="color: var(--accent-gold); font-size: 1.1rem;">-</strong> (โอนผ่านพร้อมเพย์)</div>
+          <div>เลขอ้างอิงสลิป: <span id="succBankRef" style="font-family: monospace; color: var(--accent-cyan);">-</span></div>
+          <div>สถานะ: <strong style="color: var(--accent-green);">ชำระเงินแล้ว (CONFIRMED)</strong></div>
+        </div>
+      </div>
+
+      <!-- ACTION BUTTONS -->
+      <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+        <button type="button" class="ep-nav-btn" style="background: var(--accent-green); color: #000; font-weight: 800; padding: 12px 24px; font-size: 0.95rem;" onclick="window.print()">
+          🖨️ พิมพ์บัตร / บันทึกเป็น PDF
+        </button>
+        <button type="button" class="ep-nav-btn" style="background: #334155; color: #fff; padding: 12px 20px; font-size: 0.95rem;" onclick="location.reload()">
+          ➕ จองบัตรเพิ่ม
+        </button>
+      </div>
+
+      <!-- ON-SITE REMINDER NOTICE -->
+      <div style="margin-top: 24px; background: rgba(245, 158, 11, 0.1); border: 1px solid var(--accent-gold); border-radius: var(--radius-sm); padding: 14px; text-align: left;">
+        <strong style="color: var(--accent-gold); font-size: 0.88rem;">📢 คำแนะนำสำคัญในวันคอนเสิร์ต:</strong>
+        <p style="font-size: 0.82rem; color: #fff; margin-top: 4px; line-height: 1.5;">
+          โปรดแคปภาพหน้าจอหรือบันทึกภาพ <strong>"บัตรคิวอาร์โค้ด (e-Ticket)"</strong> ด้านบนนี้ไว้ในมือถือของท่าน เพื่อนำไปส่องที่เครื่องสแกนของตู้ Kiosk หน้าประตูทางเข้าคอนเสิร์ต เจ้าหน้าที่จะทำการผูกสายรัดข้อมือริสต์แบนด์และถ่ายรูปหน้าเพื่อผ่านเข้าสู่ฮอลล์ทันทีค่ะ!
+        </p>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- JAVASCRIPT MODULES -->
+  <script src="js/qrcode.min.js"></script>
+  <script src="js/db.js"></script>
+  <script src="js/audioAlertEngine.js"></script>
+  <script src="js/booking.js"></script>
+</body>
+</html>

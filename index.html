@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0a0f1d">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>EventPay - ระบบจำหน่ายบัตรและรับเงิน คอนเสิร์ตเทพอภัย & ลิลิน 2026</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+  <!-- HEADER & NAVIGATION -->
+  <header class="ep-header">
+    <div class="ep-header-inner">
+      <div class="ep-brand">
+        <div class="ep-logo-badge">EVENTPAY</div>
+        <div class="ep-event-title">
+          <h1 id="headerEventName">THEP-APAI & LILIN SUPREME MEGA CONCERT 2026</h1>
+          <p id="headerVenue">IMPACT ARENA HALL 1-4, BANGKOK | 25 ต.ค. 2026</p>
+        </div>
+      </div>
+      <nav class="ep-nav-links">
+        <button class="ep-nav-btn active" id="btnNavTicketing" onclick="switchMainView('ticketing')">🎫 จำหน่ายบัตร</button>
+        <button class="ep-nav-btn" id="btnNavOrders" onclick="openOrdersModal()">📋 รายการบัตรที่ออกแล้ว</button>
+        <button class="ep-nav-btn" id="btnNavShift" onclick="openShiftModal()">💵 จัดการกะเงินสด</button>
+        <a href="kiosk.html" class="ep-nav-btn btn-kiosk" target="_blank">🚪 ประตู Kiosk ทางเข้า</a>
+        <a href="admin.html" class="ep-nav-btn btn-admin" target="_blank">📊 แดชบอร์ด Admin</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- STATUS BAR (ACTIVE SHIFT & CASHIER) -->
+  <section class="ep-status-bar">
+    <div class="ep-status-inner">
+      <div class="ep-status-item">
+        <span class="ep-badge-live"></span>
+        <span>สถานะ: <strong style="color: var(--accent-green);">เปิดรับเงินสดและเงินโอน (Online/Offline Ready)</strong></span>
+      </div>
+      <div class="ep-status-item">
+        <span>กะปัจจุบัน: <strong id="barShiftId" style="color: var(--accent-cyan);">กำลังโหลด...</strong></span>
+        <span> | แคชเชียร์: <strong id="barCashierName" style="color: var(--accent-gold);">เทพอภัย & ลิลิน</strong></span>
+        <span id="networkModeBadge" style="background: rgba(0, 229, 255, 0.12); color: var(--accent-cyan); border: 1px solid var(--accent-cyan); font-size: 0.75rem; padding: 2px 8px; border-radius: 12px; margin-left: 8px;">
+          📡 โหมดระบบ: กำลังตรวจหาเครื่องแม่ข่าย...
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <!-- MAIN TICKETING INTERFACE -->
+  <main class="ep-main" id="viewTicketing">
+    <div class="ep-grid">
+
+      <!-- LEFT COLUMN: TICKET SELECTION & ATTENDEES -->
+      <section>
+        <div class="ep-card">
+          <div class="ep-card-header">
+            <div class="ep-card-title">
+              <span>🎟️ เลือกรูปแบบและประเภทบัตรคอนเสิร์ต</span>
+            </div>
+            <span style="font-size: 0.8rem; color: var(--accent-cyan);">1 สิทธิ์ = 1 คน</span>
+          </div>
+
+          <!-- ORDER TYPE: PRE-SALE VS ON-SITE WALK-IN -->
+          <div class="ep-type-selector">
+            <div class="ep-type-btn active" id="btnTypeWalkin" onclick="setOrderType('WALKIN')">
+              🏢 ซื้อบัตรหน้างาน (Box Office)
+              <span class="sub-text">ชำระเงินสด/โอน รับบัตรเข้างานทันที</span>
+            </div>
+            <div class="ep-type-btn" id="btnTypePresale" onclick="setOrderType('PRESALE')">
+              📱 ซื้อบัตรล่วงหน้า (Pre-Sale)
+              <span class="sub-text">โอนชำระเงิน รับ e-Ticket ล่วงหน้า</span>
+            </div>
+          </div>
+
+          <!-- TICKET TIERS LIST -->
+          <div class="ep-tier-list" id="tierListContainer">
+            <!-- Dynamically populated by ticketing.js -->
+          </div>
+        </div>
+
+        <!-- ATTENDEE & CUSTOMER DETAILS -->
+        <div class="ep-card">
+          <div class="ep-card-header">
+            <div class="ep-card-title">
+              <span>👤 ข้อมูลผู้สั่งซื้อและผู้เข้าชม</span>
+            </div>
+            <span style="font-size: 0.78rem; color: var(--text-muted);">ใช้สำหรับออกใบเสร็จและระบุบนบัตร</span>
+          </div>
+
+          <div class="ep-form-group">
+            <label class="ep-form-label">ชื่อผู้ติดต่อ / ผู้สั่งซื้อหลัก <span style="color: var(--accent-red);">*</span></label>
+            <input type="text" class="ep-input" id="custName" placeholder="เช่น นายสมชาย ใจดี" value="ลูกค้าหน้างาน">
+          </div>
+
+          <div class="ep-form-group">
+            <label class="ep-form-label">เบอร์โทรศัพท์มือถือ</label>
+            <input type="tel" class="ep-input" id="custPhone" placeholder="08X-XXX-XXXX">
+          </div>
+
+          <!-- DYNAMIC ATTENDEE LIST -->
+          <div id="dynamicAttendeesContainer" style="margin-top: 14px;">
+            <!-- Dynamically populated based on selected ticket quantity -->
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT COLUMN: PAYMENT & TOTAL SUMMARY -->
+      <section>
+        <div class="ep-card">
+          <div class="ep-card-header">
+            <div class="ep-card-title">
+              <span>💰 ช่องทางการชำระเงิน (Payment Method)</span>
+            </div>
+            <span style="font-size: 0.8rem; color: var(--accent-gold);">โปร่งใส ตรวจสอบได้ 100%</span>
+          </div>
+
+          <!-- PAYMENT TABS: CASH VS TRANSFER -->
+          <div class="ep-pay-tabs">
+            <div class="ep-pay-tab active" id="tabPayCash" onclick="setPaymentMethod('CASH')">
+              💵 เงินสด (Cash)
+            </div>
+            <div class="ep-pay-tab" id="tabPayTransfer" onclick="setPaymentMethod('TRANSFER')">
+              📲 เงินโอน (Thai QR)
+            </div>
+          </div>
+
+          <!-- CASH PAYMENT PANEL -->
+          <div id="panelCashPayment">
+            <div class="ep-form-group">
+              <label class="ep-form-label">จำนวนเงินสดที่รับจากลูกค้า (บาท) <span style="color: var(--accent-red);">*</span></label>
+              <input type="number" class="ep-input" id="cashReceivedInput" placeholder="0.00" style="font-size: 1.3rem; font-weight: 800; color: var(--accent-gold);" oninput="calculateChange()">
+            </div>
+
+            <!-- QUICK CASH BUTTONS -->
+            <div class="ep-quick-cash">
+              <button type="button" class="ep-btn-quick-cash" onclick="addQuickCash('exact')">ยอดพอดี</button>
+              <button type="button" class="ep-btn-quick-cash" onclick="addQuickCash(1000)">฿1,000</button>
+              <button type="button" class="ep-btn-quick-cash" onclick="addQuickCash(2000)">฿2,000</button>
+              <button type="button" class="ep-btn-quick-cash" onclick="addQuickCash(5000)">฿5,000</button>
+              <button type="button" class="ep-btn-quick-cash" onclick="addQuickCash(10000)">฿10,000</button>
+              <button type="button" class="ep-btn-quick-cash" onclick="addQuickCash(20000)">฿20,000</button>
+              <button type="button" class="ep-btn-quick-cash" onclick="clearCash()">ล้างยอด</button>
+            </div>
+
+            <!-- LIVE CHANGE BANNER -->
+            <div class="ep-change-banner" id="changeBanner">
+              <div class="ep-change-label">เงินทอนที่ต้องคืนลูกค้า:</div>
+              <div class="ep-change-val" id="changeVal">฿0.00</div>
+            </div>
+          </div>
+
+          <!-- TRANSFER PAYMENT PANEL -->
+          <div id="panelTransferPayment" style="display: none;">
+            <div class="ep-qr-promptpay-box">
+              <h4>THAI QR PAYMENT (PROMPTPAY)</h4>
+              <div class="ep-qr-canvas-holder" id="promptPayQrHolder">
+                <!-- QR rendered dynamically -->
+              </div>
+              <div class="ep-qr-amount-tag" id="promptPayAmountTag">฿0.00</div>
+              <p style="font-size: 0.72rem; color: #555; margin-top: 6px;">บัญชี: บจก. อีเวนต์เพย์ คอนเสิร์ตสยาม</p>
+            </div>
+
+            <div class="ep-form-group">
+              <label class="ep-form-label">เลขอ้างอิงสลิปธนาคาร (Bank Reference)</label>
+              <input type="text" class="ep-input" id="bankRefInput" placeholder="เช่น KBANK-20261017-XXXX">
+            </div>
+
+            <div class="ep-form-group">
+              <label class="ep-form-label">สลิปโอนเงิน (Slip Verification)</label>
+              <div style="display: flex; gap: 8px;">
+                <button type="button" class="ep-nav-btn" style="flex: 1;" onclick="simulateSlipUpload()">📸 จำลองแนบสลิปโอนเงิน</button>
+                <span id="slipStatusText" style="font-size: 0.8rem; color: var(--accent-green); align-self: center;"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- TOTAL SUMMARY -->
+          <div class="ep-summary-box" style="margin-top: 16px;">
+            <div class="ep-summary-row">
+              <span>จำนวนบัตรทั้งหมด:</span>
+              <strong id="summaryTotalTickets">0 ใบ</strong>
+            </div>
+            <div class="ep-summary-row">
+              <span>ช่องทางชำระเงิน:</span>
+              <strong id="summaryPayMethod" style="color: var(--accent-gold);">เงินสด (CASH)</strong>
+            </div>
+            <div class="ep-summary-row total">
+              <span>ยอดเงินรวมสุทธิ:</span>
+              <span class="val" id="summaryTotalAmount">฿0.00</span>
+            </div>
+          </div>
+
+          <!-- SUBMIT ACTION -->
+          <button type="button" class="ep-btn-submit" id="btnSubmitOrder" onclick="processOrderSubmit()" disabled>
+            <span>💳 บันทึกชำระเงินและออกบัตรทันที</span>
+          </button>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- ========================================================================
+       MODAL 1: ใบเสร็จรับเงิน (PAYMENT RECEIPT)
+       ======================================================================== -->
+  <div class="ep-modal-backdrop" id="modalReceipt">
+    <div class="ep-modal" style="max-width: 440px;">
+      <div class="ep-modal-header">
+        <h3 class="ep-modal-title">🧾 ใบเสร็จรับเงิน (Payment Receipt)</h3>
+        <button class="ep-modal-close" onclick="closeModal('modalReceipt')">&times;</button>
+      </div>
+      <div class="ep-modal-body">
+        <div class="ep-receipt-card" id="receiptPrintArea">
+          <div class="ep-receipt-header">
+            <h2>EVENTPAY CONCERT RECEIPT</h2>
+            <p>บริษัท อีเวนต์เพย์ คอนเสิร์ต จำกัด</p>
+            <p id="rcptEventTitle">THEP-APAI & LILIN SUPREME CONCERT 2026</p>
+          </div>
+
+          <div class="ep-receipt-info">
+            <span>เลขที่ใบเสร็จ:</span>
+            <strong id="rcptId">RCPT-20261017-001</strong>
+          </div>
+          <div class="ep-receipt-info">
+            <span>วันที่-เวลา:</span>
+            <span id="rcptDate">17/10/2026 21:00</span>
+          </div>
+          <div class="ep-receipt-info">
+            <span>ผู้ซื้อ:</span>
+            <span id="rcptCustomer">นายสมชาย ใจดี</span>
+          </div>
+          <div class="ep-receipt-info">
+            <span>แคชเชียร์:</span>
+            <span id="rcptCashier">ลิลิน (จุดขาย BoxOffice 01)</span>
+          </div>
+
+          <table class="ep-receipt-table">
+            <thead>
+              <tr>
+                <th>รายการบัตร</th>
+                <th style="text-align: center;">จน.</th>
+                <th style="text-align: right;">จำนวนเงิน</th>
+              </tr>
+            </thead>
+            <tbody id="rcptItemsBody">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+
+          <div class="ep-receipt-total">
+            <span>ยอดสุทธิ:</span>
+            <span id="rcptTotal">฿0.00</span>
+          </div>
+
+          <div style="font-size: 0.82rem; margin-top: 8px; border-top: 1px dashed #cbd5e1; padding-top: 6px;">
+            <div class="ep-receipt-info">
+              <span>วิธีชำระ:</span>
+              <strong id="rcptPayMethod">CASH</strong>
+            </div>
+            <div class="ep-receipt-info" id="rcptCashTenderedRow">
+              <span>รับเงินสด:</span>
+              <span id="rcptTendered">฿0.00</span>
+            </div>
+            <div class="ep-receipt-info" id="rcptChangeRow">
+              <span>เงินทอน:</span>
+              <span id="rcptChange">฿0.00</span>
+            </div>
+            <div class="ep-receipt-info" id="rcptBankRefRow" style="display: none;">
+              <span>เลขอ้างอิงธนาคาร:</span>
+              <span id="rcptBankRef">-</span>
+            </div>
+          </div>
+
+          <div class="ep-receipt-footer">
+            <p>*** โปรดนำ e-Ticket QR Code ไปยืนยันตัวตนที่ประตู Kiosk ***</p>
+            <p>1 สิทธิ์ = 1 คน (มีระบบตรวจใบหน้าและริสต์แบนด์)</p>
+            <p>ขอบพระคุณที่ร่วมเป็นส่วนหนึ่งของคอนเสิร์ตประวัติศาสตร์</p>
+          </div>
+        </div>
+      </div>
+      <div class="ep-modal-footer">
+        <button type="button" class="ep-nav-btn" onclick="window.print()">🖨️ พิมพ์ใบเสร็จ</button>
+        <button type="button" class="ep-nav-btn" style="background: var(--accent-gold); color: #000;" onclick="viewIssuedTicketsFromReceipt()">🎟️ ดูบัตร e-Ticket QR Code</button>
+        <button type="button" class="ep-nav-btn" onclick="closeModal('modalReceipt')">ปิดหน้าต่าง</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MODAL 2: บัตร E-TICKET QR CODE (FOR ENTRY GATE)
+       ======================================================================== -->
+  <div class="ep-modal-backdrop" id="modalTickets">
+    <div class="ep-modal" style="max-width: 550px;">
+      <div class="ep-modal-header">
+        <h3 class="ep-modal-title">🎟️ บัตร e-Ticket QR Code สำหรับเข้างาน</h3>
+        <button class="ep-modal-close" onclick="closeModal('modalTickets')">&times;</button>
+      </div>
+      <div class="ep-modal-body" id="ticketsListContainer">
+        <!-- Ticket passes dynamically generated -->
+      </div>
+      <div class="ep-modal-footer">
+        <button type="button" class="ep-nav-btn" onclick="window.print()">🖨️ พิมพ์บัตรทั้งหมด</button>
+        <a href="kiosk.html" class="ep-nav-btn btn-kiosk" target="_blank">🚪 เปิดหน้าตู้ Kiosk ทางเข้าเพื่อทดสอบสแกน</a>
+        <button type="button" class="ep-nav-btn" onclick="closeModal('modalTickets')">ปิด</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MODAL 3: จัดการกะเงินสดและการปิดกะ (SHIFT RECONCILIATION)
+       ======================================================================== -->
+  <div class="ep-modal-backdrop" id="modalShift">
+    <div class="ep-modal" style="max-width: 580px;">
+      <div class="ep-modal-header">
+        <h3 class="ep-modal-title">💵 ระบบบริหารเงินสดและปิดกะแคชเชียร์</h3>
+        <button class="ep-modal-close" onclick="closeModal('modalShift')">&times;</button>
+      </div>
+      <div class="ep-modal-body">
+        <div style="background: #0d1527; padding: 14px; border-radius: 8px; margin-bottom: 14px; font-size: 0.85rem;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+            <span>รหัสกะ: <strong id="shiftModalId" style="color: var(--accent-cyan);">SHIFT-001</strong></span>
+            <span>สถานะ: <strong id="shiftModalStatus" style="color: var(--accent-green);">OPEN</strong></span>
+          </div>
+          <div>แคชเชียร์ประจำกะ: <strong id="shiftModalCashier">ลิลิน</strong></div>
+        </div>
+
+        <!-- FORMULA BREAKDOWN -->
+        <div class="ep-summary-box">
+          <div class="ep-summary-row">
+            <span>[+] เงินทอนเริ่มต้น (Opening Float):</span>
+            <strong id="shiftFloatVal">฿10,000.00</strong>
+          </div>
+          <div class="ep-summary-row">
+            <span>[+] ยอดขายเงินสดสะสม (Cash Sales):</span>
+            <strong id="shiftSalesVal" style="color: var(--accent-green);">฿0.00</strong>
+          </div>
+          <div class="ep-summary-row">
+            <span>[-] รายจ่ายเงินสดสะสม (Cash Payouts):</span>
+            <strong id="shiftPayoutsVal" style="color: var(--accent-red);">฿0.00</strong>
+          </div>
+          <div class="ep-summary-row total">
+            <span>ยอดเงินสดที่ควรมีในลิ้นชัก (Expected Cash):</span>
+            <span class="val" id="shiftExpectedVal">฿10,000.00</span>
+          </div>
+        </div>
+
+        <!-- CASH COUNT INPUT -->
+        <div class="ep-form-group">
+          <label class="ep-form-label">ยอดเงินสดที่นับได้จริงในลิ้นชัก (Counted Cash) <span style="color: var(--accent-red);">*</span></label>
+          <input type="number" class="ep-input" id="shiftCountedInput" placeholder="0.00" style="font-size: 1.3rem; font-weight: 800; color: var(--accent-cyan);" oninput="onShiftCountChange()">
+        </div>
+
+        <!-- LIVE VARIANCE DISPLAY -->
+        <div class="ep-change-banner" id="shiftVarianceBanner">
+          <div class="ep-change-label">ผลต่างการกระทบยอด (Cash Variance):</div>
+          <div class="ep-change-val" id="shiftVarianceVal">฿0.00</div>
+          <div id="shiftVarianceStatus" style="font-size: 0.82rem; margin-top: 4px; font-weight: 600;">ยอดเงินถูกต้องพอดี (BALANCED)</div>
+        </div>
+
+        <!-- RECORD EXPENSE SECTION -->
+        <div style="border-top: 1px solid var(--border-color); padding-top: 14px; margin-top: 16px;">
+          <h4 style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 8px;">💸 บันทึกจ่ายเงินสดฉุกเฉินหน้างาน (Cash Payout)</h4>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <input type="number" class="ep-input" id="payoutAmountInput" placeholder="จำนวนเงิน (บาท)">
+            <input type="text" class="ep-input" id="payoutReasonInput" placeholder="เหตุผลการจ่าย">
+          </div>
+          <button type="button" class="ep-nav-btn" style="width: 100%; margin-top: 8px; justify-content: center;" onclick="submitCashPayout()">บันทึกรายจ่ายเงินสด</button>
+        </div>
+      </div>
+      <div class="ep-modal-footer">
+        <button type="button" class="ep-nav-btn" style="background: var(--accent-red); color: #fff;" onclick="submitCloseShift()">🔒 ดำเนินการปิดกะเงินสด</button>
+        <button type="button" class="ep-nav-btn" onclick="closeModal('modalShift')">ปิด</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MODAL 4: ประวัติออเดอร์และตั๋ว (ORDER MANIFEST)
+       ======================================================================== -->
+  <div class="ep-modal-backdrop" id="modalOrders">
+    <div class="ep-modal" style="max-width: 750px;">
+      <div class="ep-modal-header">
+        <h3 class="ep-modal-title">📋 ประวัติคำสั่งซื้อและบัตรคอนเสิร์ตที่ออกแล้ว</h3>
+        <button class="ep-modal-close" onclick="closeModal('modalOrders')">&times;</button>
+      </div>
+      <div class="ep-modal-body" id="ordersListContainer">
+        <!-- Orders list dynamically populated -->
+      </div>
+      <div class="ep-modal-footer">
+        <button type="button" class="ep-nav-btn" onclick="closeModal('modalOrders')">ปิด</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CORE SCRIPTS -->
+  <script src="js/qrcode.min.js"></script>
+  <script src="js/audioAlertEngine.js"></script>
+  <script src="js/hardwareBridge.js"></script>
+  <script src="js/db.js"></script>
+  <script src="js/firebaseAdapter.js"></script>
+  <script src="js/ticketing.js"></script>
+</body>
+</html>

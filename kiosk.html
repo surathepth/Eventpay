@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#030712">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>EventPay Kiosk Gate - ประตูตรวจสิทธิ์ 3 ประสาน งานคอนเสิร์ต</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="ep-kiosk-body">
+
+  <!-- KIOSK HEADER -->
+  <header class="ep-kiosk-header">
+    <div style="display: flex; align-items: center; gap: 14px;">
+      <div class="ep-logo-badge" style="background: linear-gradient(135deg, #10b981 0%, #047857 100%); color: #fff;">
+        GATE KIOSK
+      </div>
+      <div>
+        <h2 style="font-size: 1.1rem; color: #fff; font-weight: 800;" id="kioskGateTitle">
+          🚪 GATE 1: NORTH KIOSK (ZONE A / VIP)
+        </h2>
+        <p style="font-size: 0.78rem; color: var(--accent-cyan);">
+          เจ้าหน้าที่ประจำจุด: <span id="kioskGuardName">การ์ดประตูสมบัติ (STF-03)</span> | ระบบ 3 ประสาน (QR + ริสต์แบนด์ + ใบหน้า)
+        </p>
+      </div>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+      <span class="ep-nav-btn" style="background: #0f233a; border-color: #1e40af; font-size: 0.78rem;" id="badgeAudioStatus">
+        🔊 ลำโพงไซเรน: พร้อมใช้งาน
+      </span>
+      <span class="ep-nav-btn" style="background: rgba(0, 229, 255, 0.1); border-color: var(--accent-cyan); color: var(--accent-cyan); font-size: 0.78rem;" id="kioskNetBadge">
+        📡 ตรวจหาเครื่องแม่ข่าย LAN...
+      </span>
+      <button type="button" class="ep-nav-btn" onclick="toggleKioskFullscreen()" id="btnFullscreen">
+        ⛶ ขยายเต็มจอ
+      </button>
+      <a href="index.html" class="ep-nav-btn" style="background: #1f2937;">
+        🎫 ไปหน้าขายตั๋ว
+      </a>
+      <a href="admin.html" class="ep-nav-btn btn-admin">
+        📊 ไปหน้า Admin
+      </a>
+    </div>
+  </header>
+
+  <!-- WEB AUDIO AUTOPLAY UNLOCK BANNER (SHOWN IF AUDIO SUSPENDED) -->
+  <div id="kioskUnlockBanner" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #000; padding: 14px 20px; text-align: center; font-weight: 800; font-size: 1.05rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 12px; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);" onclick="unlockKioskAudioAndCamera()">
+    <span>🔊 แตะที่นี่เพื่อเริ่มต้นระบบตรวจบัตร Kiosk และเปิดใช้งานลำโพงไซเรนเตือนภัย (Arm System)</span>
+    <button type="button" style="background: #000; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; font-weight: 700; cursor: pointer;">เปิดระบบทันที</button>
+  </div>
+
+  <!-- MAIN KIOSK SCANNING WORKSPACE -->
+  <main class="ep-kiosk-grid">
+
+    <!-- LEFT: WEBRTC CAMERA & FACE CAPTURE RETICLE -->
+    <section>
+      <div class="ep-card" style="margin-bottom: 12px;">
+        <div class="ep-card-header" style="margin-bottom: 10px; padding-bottom: 8px;">
+          <div class="ep-card-title" style="font-size: 0.95rem;">
+            <span>📸 กล้องตรวจจับและบันทึกใบหน้า (Face Capture Engine)</span>
+          </div>
+          <span style="font-size: 0.75rem; color: var(--accent-green);">360x360 &lt; 40KB (&lt; 0.05s)</span>
+        </div>
+
+        <!-- CAMERA VIEWPORT -->
+        <div class="ep-camera-viewport">
+          <video id="gateCameraVideo" class="ep-camera-video" autoplay playsinline muted></video>
+          <div class="ep-camera-overlay">
+            <span>วางใบหน้าในกรอบ</span>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 0.8rem; color: var(--text-muted);">
+          <span>สถานะกล้อง: <strong id="cameraStatusText" style="color: var(--accent-green);">กำลังเปิดกล้อง...</strong></span>
+          <button type="button" class="ep-nav-btn" style="font-size: 0.75rem; padding: 4px 8px;" onclick="switchCamera()">
+            🔄 สลับกล้องหน้า/หลัง
+          </button>
+        </div>
+      </div>
+
+      <!-- LAST CAPTURED FACE SNAPSHOT PREVIEW -->
+      <div class="ep-card" style="padding: 14px;">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <span style="font-size: 0.85rem; font-weight: 700; color: var(--text-muted);">ภาพถ่ายใบหน้าผู้เข้าชมล่าสุด:</span>
+          <span id="faceMetaTag" style="font-size: 0.75rem; color: var(--text-dim);">-</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 14px; margin-top: 10px;">
+          <img id="lastFaceImg" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='1.5'%3E%3Ccircle cx='12' cy='8' r='4'/%3E%3Cpath d='M20 21a8 8 0 1 0-16 0'/%3E%3C/svg%3E"
+               alt="Face Snapshot" style="width: 80px; height: 80px; border-radius: 8px; border: 2px solid var(--border-color); object-fit: cover; background: #000;">
+          <div style="font-size: 0.82rem; color: var(--text-muted);">
+            <div>ชื่อ: <strong id="lastFaceAttendee" style="color: #fff;">-</strong></div>
+            <div>ริสต์แบนด์: <strong id="lastFaceWristband" style="color: var(--accent-gold);">-</strong></div>
+            <div>เวลาที่สแกน: <span id="lastFaceTime">-</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT: VERIFICATION INPUT & SCANNING CONTROLS -->
+    <section>
+      <div class="ep-card">
+        <div class="ep-card-header">
+          <div class="ep-card-title">
+            <span>🛡️ ช่องตรวจสอบสิทธิ์ (Verification Input)</span>
+          </div>
+          <span style="font-size: 0.8rem; color: var(--accent-gold);">รองรับปืนยิงบาร์โค้ด &amp; NFC</span>
+        </div>
+
+        <form id="gateScanForm" onsubmit="event.preventDefault(); processGateScan();">
+          <!-- 1. QR CODE INPUT -->
+          <div class="ep-form-group">
+            <label class="ep-form-label" style="font-size: 0.95rem;">
+              [1] รหัส QR Code บนบัตร หรือ e-Ticket Hash <span style="color: var(--accent-red);">*</span>
+            </label>
+            <input type="text" class="ep-input" id="gateQrInput" placeholder="ยิงสแกน QR Code หรือกรอกรหัสตั๋ว..."
+                   style="font-size: 1.25rem; font-weight: 800; color: var(--accent-cyan); font-family: monospace;" autofocus>
+          </div>
+
+          <!-- 2. WRISTBAND UID INPUT -->
+          <div class="ep-form-group">
+            <label class="ep-form-label" style="font-size: 0.95rem;">
+              [2] รหัสริสต์แบนด์ (Wristband UID) <span style="color: var(--accent-gold);">* (ผูกเข้ากับบัตร 1 สิทธิ์)</span>
+            </label>
+            <input type="text" class="ep-input" id="gateWbInput" placeholder="สแกนหรือระบุรหัสริสต์แบนด์ เช่น WB-1001..."
+                   style="font-size: 1.25rem; font-weight: 800; color: var(--accent-gold); font-family: monospace;">
+          </div>
+
+          <!-- ACTION BUTTON -->
+          <button type="submit" class="ep-btn-submit" id="btnVerifyGate" style="padding: 18px; font-size: 1.25rem;">
+            <span>🚀 ตรวจสอบสิทธิ์เข้างาน (VERIFY PASS)</span>
+          </button>
+        </form>
+
+        <!-- PRE-LOADED QUICK TEST BUTTONS -->
+        <div style="border-top: 1px solid var(--border-color); padding-top: 14px; margin-top: 18px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-size: 0.82rem; font-weight: 700; color: var(--text-muted);">⚡ ปุ่มทดสอบจำลองเหตุการณ์หน้างานจริง (One-Click Demo):</span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <button type="button" class="ep-nav-btn" style="background: #064e3b; border-color: #059669; font-size: 0.78rem;" onclick="fillTestTicket('NEW_VIP')">
+              🎟️ บัตรใหม่ 1 (VIP นายสมชาย)
+            </button>
+            <button type="button" class="ep-nav-btn" style="background: #064e3b; border-color: #059669; font-size: 0.78rem;" onclick="fillTestTicket('NEW_REG')">
+              🎟️ บัตรใหม่ 2 (REG นางสาวสมหญิง)
+            </button>
+            <button type="button" class="ep-nav-btn" style="background: #7f1d1d; border-color: #dc2626; color: #fff; font-size: 0.78rem;" onclick="fillTestTicket('FRAUD_DUPLICATE')">
+              🚨 ทดสอบ: สวมสิทธิ์ / บัตรเข้าแล้ว
+            </button>
+            <button type="button" class="ep-nav-btn" style="background: #7f1d1d; border-color: #dc2626; color: #fff; font-size: 0.78rem;" onclick="fillTestTicket('VOID_TICKET')">
+              🚫 ทดสอบ: บัตรโมฆะ
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- GATE RUNNING STATS -->
+      <div class="ep-card" style="padding: 16px;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; text-align: center;">
+          <div style="background: #0d1527; padding: 10px; border-radius: 8px;">
+            <div style="font-size: 0.75rem; color: var(--text-muted);">ผ่านเข้างานแล้ว</div>
+            <div style="font-size: 1.5rem; font-weight: 800; color: var(--accent-green);" id="statEnteredCount">0 คน</div>
+          </div>
+          <div style="background: #0d1527; padding: 10px; border-radius: 8px;">
+            <div style="font-size: 0.75rem; color: var(--text-muted);">ตรวจจับเหตุผิดปกติ</div>
+            <div style="font-size: 1.5rem; font-weight: 800; color: var(--accent-red);" id="statIncidentCount">0 ครั้ง</div>
+          </div>
+          <div style="background: #0d1527; padding: 10px; border-radius: 8px;">
+            <div style="font-size: 0.75rem; color: var(--text-muted);">คงเหลือรอเข้า</div>
+            <div style="font-size: 1.5rem; font-weight: 800; color: var(--accent-cyan);" id="statRemainingCount">0 คน</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ========================================================================
+       GIANT SCREEN 1: BIG GREEN PASS SCREEN (จอเขียวผ่าน)
+       ======================================================================== -->
+  <div class="ep-result-overlay ep-result-pass" id="overlayPass">
+    <div class="ep-pass-icon">✓</div>
+    <h1 style="font-size: 2.8rem; font-weight: 900; margin-bottom: 6px; letter-spacing: 1px;">
+      PASS - เข้างานได้
+    </h1>
+    <h2 style="font-size: 1.5rem; font-weight: 700; color: #d1fae5; margin-bottom: 20px;" id="passModeText">
+      ยินดีต้อนรับเข้าสู่งานคอนเสิร์ต
+    </h2>
+
+    <div style="background: rgba(0, 0, 0, 0.55); border-radius: var(--radius-md); padding: 20px; max-width: 550px; width: 100%; text-align: left; box-shadow: var(--shadow-lg);">
+      <div style="display: flex; gap: 16px; align-items: center;">
+        <img id="passFaceImg" src="" alt="Face" style="width: 100px; height: 100px; border-radius: 10px; border: 3px solid #10b981; object-fit: cover; background: #000;">
+        <div style="font-size: 1rem; line-height: 1.6;">
+          <div>ผู้ถือบัตร: <strong id="passAttendeeName" style="color: #fff; font-size: 1.25rem;">นายสมชาย ใจดี</strong></div>
+          <div>โซนที่นั่ง: <strong id="passTierName" style="color: var(--accent-gold);">VIP Front Row (Zone A)</strong></div>
+          <div>รหัสบัตร: <span id="passTicketId" style="font-family: monospace;">TKT-VIP-001</span></div>
+          <div>ริสต์แบนด์: <strong id="passWristbandId" style="color: var(--accent-cyan); font-family: monospace;">WB-1001</strong></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top: 24px; font-size: 0.95rem; color: #a7f3d0;">
+      ⏱️ ระบบจะรีเซ็ตอัตโนมัติใน 3 วินาที เพื่อพร้อมสแกนคนถัดไป...
+    </div>
+    <button type="button" class="ep-btn-silence" style="color: #059669; border-color: #059669; padding: 10px 24px; font-size: 1rem; margin-top: 14px;" onclick="closePassScreen()">
+      รับคนถัดไปทันที
+    </button>
+  </div>
+
+  <!-- ========================================================================
+       GIANT SCREEN 2: BIG FLASHING RED ALERT SCREEN (จอแดงไซเรนลั่นลำโพง - FRAUD)
+       ======================================================================== -->
+  <div class="ep-result-overlay ep-result-fraud" id="overlayFraud">
+    <div class="ep-fraud-icon">!</div>
+    <h1 style="font-size: 2.8rem; font-weight: 900; margin-bottom: 6px; letter-spacing: 1px; color: #fff;">
+      🚨 ตรวจพบการสวมสิทธิ์ / บัตรผิดปกติ 🚨
+    </h1>
+    <h2 style="font-size: 1.6rem; font-weight: 800; color: #fecaca; margin-bottom: 16px;" id="fraudViolationText">
+      REJECT: รหัสริสต์แบนด์ไม่ตรงกับที่ผูกไว้ครั้งแรก!
+    </h2>
+
+    <!-- SUSPECT SNAPSHOT & DETAILS -->
+    <div style="background: rgba(0, 0, 0, 0.7); border: 2px solid #ef4444; border-radius: var(--radius-md); padding: 18px; max-width: 580px; width: 100%; text-align: left;">
+      <div style="display: flex; gap: 16px; align-items: center;">
+        <img id="fraudFaceImg" src="" alt="Suspect" style="width: 110px; height: 110px; border-radius: 10px; border: 3px solid #ef4444; object-fit: cover; background: #000;">
+        <div style="font-size: 0.95rem; line-height: 1.6;">
+          <div style="color: #fca5a5;">รหัสบัตรที่นำมาสแกน: <strong id="fraudTicketId" style="color: #fff; font-family: monospace;">-</strong></div>
+          <div style="color: #fca5a5;">ริสต์แบนด์ที่สแกน: <strong id="fraudWristbandId" style="color: #fef08a; font-family: monospace;">-</strong></div>
+          <div style="color: #fca5a5;">สาเหตุการปฏิเสธ: <strong id="fraudReasonDetail" style="color: #fff;">-</strong></div>
+          <div style="font-size: 0.8rem; color: #f87171; margin-top: 4px;">บันทึกหลักฐานลงใน Security Incidents เรียบร้อยแล้ว</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECURITY OFFICER INSTRUCTION BOX -->
+    <div class="ep-security-box">
+      👮 เจ้าหน้าที่รักษาความปลอดภัย (Security Guard):<br>
+      เชิญตัวผู้ต้องสงสัยออกไปจุดตรวจสอบหน้าประตูทันที! ห้ามให้เข้างานเด็ดขาด
+    </div>
+
+    <!-- BUTTON TO STOP LOUDSPEAKER SIREN -->
+    <button type="button" class="ep-btn-silence" onclick="silenceAlarmAndReset()">
+      🔕 หยุดเสียงไซเรนและรีเซ็ตระบบ
+    </button>
+  </div>
+
+  <!-- CORE SCRIPTS -->
+  <script src="js/qrcode.min.js"></script>
+  <script src="js/audioAlertEngine.js"></script>
+  <script src="js/hardwareBridge.js"></script>
+  <script src="js/db.js"></script>
+  <script src="js/firebaseAdapter.js"></script>
+  <script src="js/gate.js"></script>
+</body>
+</html>
