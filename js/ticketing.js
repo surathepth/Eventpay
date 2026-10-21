@@ -170,7 +170,13 @@
     container.innerHTML = '';
 
     const tiers = EventPayDB.getAll('ticket_tiers');
+    let totalTickets = 0;
+    tiers.forEach(tier => {
+      totalTickets += (tierQuantities[tier.tier_id] || 0);
+    });
+
     let attendeeIndex = 1;
+    const currentCustName = document.getElementById('custName')?.value.trim() || 'ลูกค้าหน้างาน';
 
     tiers.forEach(tier => {
       const qty = tierQuantities[tier.tier_id] || 0;
@@ -178,6 +184,12 @@
         const row = document.createElement('div');
         row.className = 'ep-form-group';
         row.style.marginBottom = '8px';
+
+        // หากซื้อบัตร 1 ใบ ให้ซิงก์ชื่อผู้สั่งซื้ออัตโนมัติ โดยซ่อนช่องกรอกซ้ำเพื่อความสะดวกรวดเร็ว
+        if (totalTickets === 1) {
+          row.style.display = 'none';
+        }
+
         row.innerHTML = `
           <label class="ep-form-label" style="font-size: 0.78rem;">
             🎟️ ผู้เข้าชมคนที่ ${attendeeIndex} (${tier.name})
@@ -185,12 +197,23 @@
           <input type="text" class="ep-input ep-attendee-input"
                  data-tier="${tier.tier_id}"
                  placeholder="ระบุชื่อ-นามสกุล ผู้ถือบัตรใบที่ ${attendeeIndex}"
-                 value="${attendeeIndex === 1 ? (document.getElementById('custName')?.value || 'นายสมชาย ใจดี') : ''}">
+                 value="${attendeeIndex === 1 ? currentCustName : ''}">
         `;
         container.appendChild(row);
         attendeeIndex++;
       }
     });
+
+    // แสดงข้อความแนะนำเมื่อซื้อ 1 ใบ
+    if (totalTickets === 1) {
+      const hint = document.createElement('div');
+      hint.style.fontSize = '0.78rem';
+      hint.style.color = 'var(--accent-green)';
+      hint.style.marginTop = '4px';
+      hint.style.fontWeight = '600';
+      hint.innerHTML = '✨ บัตร 1 ใบนี้จะระบุชื่อตาม <strong>"ชื่อผู้สั่งซื้อ"</strong> ด้านบนอัตโนมัติ (ไม่ต้องพิมพ์ซ้ำ)';
+      container.appendChild(hint);
+    }
   }
 
   // ==========================================================================
@@ -200,12 +223,14 @@
     currentOrderType = type;
     const btnWalkin = document.getElementById('btnTypeWalkin');
     const btnPresale = document.getElementById('btnTypePresale');
-    if (type === 'WALKIN') {
-      btnWalkin.classList.add('active');
-      btnPresale.classList.remove('active');
-    } else {
-      btnPresale.classList.add('active');
-      btnWalkin.classList.remove('active');
+    if (btnWalkin && btnPresale) {
+      if (type === 'WALKIN') {
+        btnWalkin.classList.add('active');
+        btnPresale.classList.remove('active');
+      } else {
+        btnPresale.classList.add('active');
+        btnWalkin.classList.remove('active');
+      }
     }
   };
 
@@ -348,15 +373,34 @@
   function renderPromptPayQr() {
     const holder = document.getElementById('promptPayQrHolder');
     const tag = document.getElementById('promptPayAmountTag');
+    const accInfoEl = document.getElementById('indexPromptPayAccInfo');
     const total = getTotalAmount();
 
     if (tag) tag.textContent = `฿${total.toLocaleString('th-TH', { minimumFractionDigits: 2 })}`;
     if (!holder) return;
     holder.innerHTML = '';
 
+    // ดึงบัญชีหลักจาก EventPayDB
+    let activeBank = null;
+    if (typeof EventPayDB !== 'undefined' && EventPayDB.getActiveBankAccount) {
+      activeBank = EventPayDB.getActiveBankAccount();
+    }
+    const bankName = activeBank ? activeBank.bank_name : 'ธนาคารกสิกรไทย (KBANK)';
+    const accNum = activeBank ? activeBank.account_number : '081-234-5678';
+    const accName = activeBank ? activeBank.account_name : 'บริษัท สุรเทพอภัย คอนเสิร์ต จำกัด (EventPay Official)';
+    const promptPayId = activeBank ? activeBank.promptpay_id : '0812345678';
+
+    if (accInfoEl) {
+      accInfoEl.innerHTML = `บัญชี: <strong>${bankName}</strong> (${accNum})<br>${accName}<br>พร้อมเพย์: <strong style="color:var(--accent-blue);">${promptPayId}</strong>`;
+    }
+
     if (typeof QRCode !== 'undefined' && total > 0) {
-      // สร้าง Payload จำลอง PromptPay
+      /* [REMARKED BY THEP-APAI & LILIN: โค้ดเดิมฟิกซ์เบอร์พร้อมเพย์ 0812345678]
       const payload = `TH.GOV.PROMPTPAY|0812345678|AMOUNT:${total.toFixed(2)}|EVENTPAY-CONCERT-2026`;
+      */
+      // [INSERT ACTIVE MODERN LOGIC]: ดึงเบอร์พร้อมเพย์จากบัญชีหลักที่เปิดใช้งานจริง
+      const cleanPromptPayId = promptPayId.replace(/[^0-9]/g, '');
+      const payload = `TH.GOV.PROMPTPAY|${cleanPromptPayId}|AMOUNT:${total.toFixed(2)}|EVENTPAY-CONCERT-2026`;
       new QRCode(holder, {
         text: payload,
         width: 170,

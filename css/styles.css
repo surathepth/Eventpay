@@ -8,14 +8,14 @@
  */
 
 :root {
-  --bg-primary: #0a0f1d;
-  --bg-card: #131c31;
-  --bg-card-hover: #1a2744;
-  --bg-card-active: #1f3056;
-  --border-color: #233554;
-  --text-main: #f8fafc;
-  --text-muted: #94a3b8;
-  --text-dim: #64748b;
+  --bg-primary: #151f32;
+  --bg-card: #1e2c47;
+  --bg-card-hover: #27395c;
+  --bg-card-active: #304671;
+  --border-color: #33486e;
+  --text-main: #ffffff;
+  --text-muted: #cbd5e1;
+  --text-dim: #94a3b8;
 
   --accent-gold: #f59e0b;
   --accent-gold-hover: #d97706;
@@ -56,7 +56,7 @@ body {
    HEADER & NAVIGATION BAR
    ========================================================================== */
 .ep-header {
-  background: linear-gradient(180deg, #162038 0%, #0d1527 100%);
+  background: linear-gradient(180deg, #223252 0%, #17243c 100%);
   border-bottom: 1px solid var(--border-color);
   padding: 12px 20px;
   position: sticky;
@@ -158,8 +158,8 @@ body {
    STATUS BAR (CURRENT CASHIER & SHIFT)
    ========================================================================== */
 .ep-status-bar {
-  background: #0f172a;
-  border-bottom: 1px solid #1e293b;
+  background: #17243c;
+  border-bottom: 1px solid var(--border-color);
   padding: 8px 20px;
   font-size: 0.8rem;
   color: var(--text-muted);
@@ -393,7 +393,7 @@ body {
 
 .ep-input {
   width: 100%;
-  background: #0d1527;
+  background: #131c31;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   padding: 10px 14px;
@@ -421,7 +421,7 @@ body {
 .ep-pay-tab {
   padding: 12px;
   border-radius: var(--radius-sm);
-  background: #18233c;
+  background: #1e2c47;
   border: 2px solid var(--border-color);
   color: var(--text-muted);
   font-weight: 700;
@@ -1186,4 +1186,233 @@ body {
   background: #4338ca;
   color: #fff;
   border-color: #6366f1;
+}
+
+
+/* ==========================================================================
+   HUMAN MASTER UX/UI DESIGN SYSTEM (LUMINOUS, CRISP & ZERO-CLUTTER)
+   ========================================================================== */
+body {
+  background: radial-gradient(circle at 50% 0%, #152446 0%, #080e1c 60%, #040812 100%) fixed !important;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Glassmorphism Cards & Panels */
+.ep-glass-panel {
+  background: rgba(13, 22, 44, 0.78) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.05) !important;
+}
+
+/* UNIVERSAL MASTER DROPDOWN & SUB-DROPDOWN ENGINE */
+.ep-nav-dropdown-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.ep-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.ep-dropdown-toggle,
+.ep-dropdown-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.ep-dropdown-toggle:hover, .ep-dropdown-toggle:focus,
+.ep-dropdown-btn:hover, .ep-dropdown-btn:focus {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: var(--accent-cyan);
+  box-shadow: 0 4px 14px rgba(6, 182, 212, 0.25);
+  transform: translateY(-1px);
+}
+
+.ep-dropdown-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 260px;
+  background: #0c152a;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--radius-md);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  padding: 8px;
+  z-index: 1000;
+  animation: epDropdownFade 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* INVISIBLE HOVER BRIDGE: Prevents dropdown from disappearing when cursor moves across the gap */
+.ep-dropdown-menu::before {
+  content: '';
+  position: absolute;
+  top: -12px;
+  left: 0;
+  right: 0;
+  height: 12px;
+  background: transparent;
+}
+
+.ep-dropdown.show .ep-dropdown-menu,
+.ep-dropdown:hover .ep-dropdown-menu {
+  display: block;
+}
+
+@keyframes epDropdownFade {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.ep-dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 14px;
+  color: #e2e8f0;
+  text-decoration: none;
+  font-size: 0.88rem;
+  font-weight: 600;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.ep-dropdown-item:hover {
+  background: rgba(6, 182, 212, 0.15);
+  color: #fff;
+  padding-left: 18px;
+}
+
+/* SUB-DROPDOWN (NESTED DEEP MENU) */
+.ep-sub-dropdown {
+  position: relative;
+}
+
+.ep-sub-dropdown-menu {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 100%;
+  min-width: 280px;
+  background: #0c152a;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--radius-md);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+  padding: 8px;
+  z-index: 1001;
+  margin-left: 4px;
+  animation: epDropdownFade 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* INVISIBLE HOVER BRIDGE FOR SUB-DROPDOWNS */
+.ep-sub-dropdown-menu::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -12px;
+  width: 12px;
+  background: transparent;
+}
+
+.ep-sub-dropdown:hover .ep-sub-dropdown-menu {
+  display: block;
+}
+
+/* FULLSCREEN IMMERSIVE MODAL STANDARD (100% WIDTH / 92% HEIGHT) */
+.ep-modal-backdrop-fullscreen {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 8, 18, 0.88);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.ep-modal-fullscreen-content {
+  width: 96vw;
+  max-width: 1500px;
+  height: 92vh;
+  background: #091122;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8), 0 0 30px rgba(6, 182, 212, 0.15);
+  overflow: hidden;
+  animation: epModalZoom 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes epModalZoom {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.ep-modal-fullscreen-header {
+  padding: 18px 24px;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ep-modal-fullscreen-body {
+  padding: 24px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* FINANCIAL P&L & CATEGORY BADGES */
+.ep-badge-pnl-profit {
+  background: linear-gradient(135deg, #064e3b 0%, #047857 100%);
+  color: #34d399;
+  border: 1px solid #10b981;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-weight: 800;
+  font-size: 0.92rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ep-badge-pnl-loss {
+  background: linear-gradient(135deg, #7f1d1d 0%, #b91c1c 100%);
+  color: #fca5a5;
+  border: 1px solid #ef4444;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-weight: 800;
+  font-size: 0.92rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }

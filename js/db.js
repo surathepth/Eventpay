@@ -87,6 +87,9 @@
       const initialized = this._getItem('system_initialized');
       if (!initialized) {
         this.seedDefaultData();
+      } else {
+        this._seedFinancialCategoriesIfMissing();
+        this._seedBankAccountsIfMissing();
       }
     }
 
@@ -153,6 +156,7 @@
         'events', 'ticket_tiers', 'tickets', 'wristbands',
         'orders', 'payments', 'cash_sessions', 'cash_payouts',
         'security_incidents', 'audit_logs', 'gates', 'staff',
+        'revenue_categories', 'expense_categories', 'bank_accounts',
         'system_initialized', 'db_version'
       ];
       keysToClear.forEach(k => this._removeItem(k));
@@ -393,8 +397,113 @@
       this._saveCollection('audit_logs', audit_logs);
       this._saveCollection('security_incidents', security_incidents);
 
+      this._seedFinancialCategoriesIfMissing();
+      this._seedBankAccountsIfMissing();
+
       this._setItem('system_initialized', 'true');
       this._setItem('db_version', DB_VERSION);
+    }
+
+    _seedFinancialCategoriesIfMissing() {
+      if (!this._getItem('revenue_categories')) {
+        const revCats = [
+          { category_id: 'REV-TICKET', name: 'รายได้จากการจำหน่ายบัตรคอนเสิร์ต (Ticket Sales)', description: 'รายได้จากการขายบัตรทุกโซนผ่านออนไลน์และหน้างาน' },
+          { category_id: 'REV-SPONSOR', name: 'รายได้จากผู้สนับสนุน (Sponsorship)', description: 'รายได้จากแบรนด์และสปอนเซอร์งานคอนเสิร์ต' },
+          { category_id: 'REV-MERCH', name: 'รายได้จากการขายของที่ระลึก (Merchandise)', description: 'เสื้อยืด, แท่งไฟ, โปสเตอร์, ของพรีเมียม Official' },
+          { category_id: 'REV-FNB', name: 'รายได้จากอาหารและเครื่องดื่ม (F&B Sales)', description: 'จุดจำหน่ายเครื่องดื่มและอาหารภายในบริเวณงาน' },
+          { category_id: 'REV-OTHER', name: 'รายได้เบ็ดเตล็ดอื่นๆ (Other Revenue)', description: 'รายรับอื่นๆ' }
+        ];
+        this._saveCollection('revenue_categories', revCats);
+      }
+      if (!this._getItem('expense_categories')) {
+        const expCats = [
+          { category_id: 'EXP-VENUE', name: 'ค่าเช่าสถานที่และฮอลล์จัดงาน (Venue Rental)', description: 'ค่าเช่าอิมแพ็คอารีน่าและค่าบริการสถานที่' },
+          { category_id: 'EXP-ARTIST', name: 'ค่าตัวศิลปินและนักดนตรี (Artist & Performance)', description: 'ค่าจ้างศิลปิน นักร้อง วงดนตรี และทีมแสดง' },
+          { category_id: 'EXP-PRODUCTION', name: 'ค่าระบบเวที แสง สี เสียง (Stage & Audio/Visual)', description: 'ค่าเช่าและติดตั้งระบบเวที จอ LED แสงสีเสียง' },
+          { category_id: 'EXP-SECURITY', name: 'ค่าทีมรักษาความปลอดภัยและการ์ด (Security Team)', description: 'เจ้าหน้าที่รักษาความปลอดภัย คัดกรองประตู และควบคุมฝูงชน' },
+          { category_id: 'EXP-CATERING', name: 'ค่าน้ำดื่ม อาหารกล่อง และสวัสดิการ (Staff Catering)', description: 'อาหารและน้ำดื่มสำหรับศิลปิน ทีมงาน และเจ้าหน้าที่' },
+          { category_id: 'EXP-SUPPLIES', name: 'ค่าริสต์แบนด์ กระดาษใบเสร็จ และอุปกรณ์ (Supplies)', description: 'สายรัดข้อมือริสต์แบนด์ ม้วนกระดาษความร้อน อุปกรณ์สำนักงาน' },
+          { category_id: 'EXP-MARKETING', name: 'ค่าโฆษณาและสื่อประชาสัมพันธ์ (Marketing & Ads)', description: 'สื่อออนไลน์ ป้ายบิลบอร์ด ป้ายหน้างาน' },
+          { category_id: 'EXP-MISC', name: 'ค่าใช้จ่ายเบ็ดเตล็ดหน้างาน (Miscellaneous)', description: 'ค่าใช้จ่ายฉุกเฉินและอื่นๆ' }
+        ];
+        this._saveCollection('expense_categories', expCats);
+      }
+    }
+
+    /**
+     * โหลดข้อมูลบัญชีธนาคารเริ่มต้นสำหรับการชำระเงินและ PromptPay
+     */
+    _seedBankAccountsIfMissing() {
+      const existing = this._getItem('bank_accounts');
+      let accounts = [];
+      if (existing) {
+        try {
+          accounts = JSON.parse(existing);
+        } catch (e) {
+          accounts = [];
+        }
+      }
+      if (!accounts || accounts.length === 0) {
+        const defaultAccounts = [
+          {
+            account_id: 'BANK-001',
+            bank_name: 'ธนาคารกสิกรไทย (KBANK)',
+            bank_code: 'KBANK',
+            account_number: '081-234-5678',
+            account_name: 'บริษัท สุรเทพอภัย คอนเสิร์ต จำกัด (EventPay Official)',
+            promptpay_id: '0812345678',
+            promptpay_type: 'PHONE',
+            is_active: true,
+            notes: 'บัญชีหลักสำหรับรับโอนเงินค่าบัตรคอนเสิร์ตและ PromptPay QR Code หน้าเว็บ',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          },
+          {
+            account_id: 'BANK-002',
+            bank_name: 'ธนาคารไทยพาณิชย์ (SCB)',
+            bank_code: 'SCB',
+            account_number: '123-4-56789-0',
+            account_name: 'นายสุรเทพอภัย (บัญชีสำรองงานคอนเสิร์ต)',
+            promptpay_id: '0987707456',
+            promptpay_type: 'PHONE',
+            is_active: false,
+            notes: 'บัญชีสำรองฉุกเฉิน',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }
+        ];
+        this._saveCollection('bank_accounts', defaultAccounts);
+      }
+    }
+
+    /**
+     * ดึงบัญชีธนาคารหลักที่เปิดใช้งานอยู่ในปัจจุบัน (Active Bank Account)
+     */
+    getActiveBankAccount() {
+      let accounts = this.getAll('bank_accounts');
+      if (!accounts || accounts.length === 0) {
+        this._seedBankAccountsIfMissing();
+        accounts = this.getAll('bank_accounts');
+      }
+      return accounts.find(a => a.is_active) || accounts[0] || null;
+    }
+
+    /**
+     * กำหนดบัญชีธนาคารหลักสำหรับรับเงิน
+     */
+    setActiveBankAccount(accountId) {
+      let accounts = this.getAll('bank_accounts');
+      if (!accounts || accounts.length === 0) {
+        this._seedBankAccountsIfMissing();
+        accounts = this.getAll('bank_accounts');
+      }
+      accounts.forEach(acc => {
+        acc.is_active = (acc.account_id === accountId);
+        acc.updated_at = new Date().toISOString();
+      });
+      this._saveCollection('bank_accounts', accounts);
+      this.logAudit('BANK_SET_ACTIVE', 'FINANCE', `เปิดใช้งานบัญชีหลัก: ${accountId}`, 'USER-ADMIN');
+      return true;
     }
 
     _loadCollection(name) {
@@ -472,7 +581,10 @@
         orders: 'order_id',
         payments: 'payment_id',
         audit_logs: 'log_id',
-        security_incidents: 'incident_id'
+        security_incidents: 'incident_id',
+        users: 'user_id',
+        revenue_categories: 'category_id',
+        expense_categories: 'category_id'
       };
       return keyMap[collection] || 'id';
     }
@@ -748,20 +860,33 @@
 
       if (orderData.payment_method === 'TRANSFER') {
         const cleanRef = (orderData.bank_ref || '').trim();
-        if (cleanRef) {
-          const existingPayments = this.getAll('payments');
-          const isDup = existingPayments.some(p => p.bank_ref && p.bank_ref.toUpperCase() === cleanRef.toUpperCase());
+        const existingPayments = this.getAll('payments');
+        const isDup = cleanRef ? existingPayments.some(p => p.bank_ref && p.bank_ref.toUpperCase() === cleanRef.toUpperCase()) : false;
+
+        // หากเป็นคำสั่งซื้อที่ส่งสลิปให้ฝ่ายบัญชีตรวจสเตทเมนต์ (requires_verification === true)
+        if (orderData.requires_verification === true) {
+          initialPaymentStatus = 'PENDING_VERIFICATION';
+          slipStatus = 'PENDING_VERIFICATION';
+          slipNotes = isDup ? `ตรวจพบสลิปเลขอ้างอิงซ้ำ '${cleanRef}'` : 'รอฝ่ายบัญชีตรวจสอบสเตทเมนต์ธนาคาร (ไม่เกิน 3 นาที)';
+
           if (isDup) {
-            initialPaymentStatus = 'PENDING_VERIFICATION';
-            slipStatus = 'PENDING_VERIFICATION';
-            slipNotes = `ตรวจพบสลิปเลขอ้างอิงซ้ำ '${cleanRef}'`;
-            this._recordIncident('DUPLICATE_SLIP', null, null, 'CASHIER-POS', '', `ตรวจพบสลิปซ้ำ '${cleanRef}' ในคำสั่งซื้อ ${orderId}`);
-            // ล็อกบัตรเป็นโมฆะชั่วคราวจนกว่าจะได้รับการยืนยันยอดเงิน
-            createdTickets.forEach(t => {
-              this.update('tickets', t.ticket_id, { is_void: true });
-              t.is_void = true;
-            });
+            this._recordIncident('DUPLICATE_SLIP', null, null, 'ONLINE-BOOKING', '', `ตรวจพบสลิปซ้ำ '${cleanRef}' ในคำสั่งซื้อ ${orderId}`);
           }
+          // ล็อกบัตรเป็นโมฆะชั่วคราวจนกว่าจะได้รับการกดยืนยันยอดเงินจริงจากฝ่ายบัญชี
+          createdTickets.forEach(t => {
+            this.update('tickets', t.ticket_id, { is_void: true });
+            t.is_void = true;
+          });
+        } else if (isDup) {
+          initialPaymentStatus = 'PENDING_VERIFICATION';
+          slipStatus = 'PENDING_VERIFICATION';
+          slipNotes = `ตรวจพบสลิปเลขอ้างอิงซ้ำ '${cleanRef}'`;
+          this._recordIncident('DUPLICATE_SLIP', null, null, 'CASHIER-POS', '', `ตรวจพบสลิปซ้ำ '${cleanRef}' ในคำสั่งซื้อ ${orderId}`);
+          // ล็อกบัตรเป็นโมฆะชั่วคราวจนกว่าจะได้รับการยืนยันยอดเงิน
+          createdTickets.forEach(t => {
+            this.update('tickets', t.ticket_id, { is_void: true });
+            t.is_void = true;
+          });
         }
       }
 
@@ -773,6 +898,8 @@
         payment_method: orderData.payment_method || 'CASH', // CASH | TRANSFER
         payment_status: initialPaymentStatus,
         shift_id: orderData.shift_id || 'SHIFT-20261017-01',
+        bank_ref: orderData.bank_ref || '',
+        slip_url: orderData.slip_url || '',
         created_at: now
       };
       this.insert('orders', orderRecord);
@@ -861,15 +988,34 @@
     }
 
     /**
+     * ระงับ/ปฏิเสธการชำระเงินโอนเมื่อพบสลิปปลอมหรือยอดไม่เข้าสเตทเมนต์ (Reject Fake/Invalid Slip)
+     */
+    rejectPayment(paymentId, verifierId = 'ADMIN-SUPER', reason = 'สลิปปลอม/ยอดเงินไม่เข้าสเตทเมนต์') {
+      const payment = this.get('payments', paymentId);
+      if (!payment) return null;
+      const updatedPayment = this.update('payments', paymentId, { status: 'VOID', notes: reason, verified_by: verifierId });
+      this.update('orders', payment.order_id, { payment_status: 'VOID' });
+      // ล็อกตั๋วทั้งหมดของคำสั่งซื้อนี้ให้เป็นโมฆะถาวร
+      const tickets = this.getAll('tickets', t => t.order_id === payment.order_id);
+      tickets.forEach(t => {
+        this.update('tickets', t.ticket_id, { is_void: true });
+      });
+      this._recordIncident('FAKE_SLIP', null, null, 'FINANCE-ADMIN', '', `ฝ่ายการเงินตรวจพบสลิปปลอม/ระงับสิทธิ์คำสั่งซื้อ ${payment.order_id} (เหตุผล: ${reason})`);
+      this.logAudit('REJECT_PAYMENT', 'FINANCE', `ฝ่ายการเงินปฏิเสธ/ระงับการชำระเงิน ${paymentId} (Order: ${payment.order_id}) เหตุผล: ${reason}`, verifierId);
+      return updatedPayment;
+    }
+
+    /**
      * บันทึกรายการจ่ายเงินสดจากเก๊ะ (Cash Payout / Expense)
      */
-    recordCashPayout(shiftId, amount, reason, payee, approvedBy, receiptUrl = '') {
+    recordCashPayout(shiftId, amount, reason, payee, approvedBy, receiptUrl = '', categoryId = 'EXP-MISC') {
       const now = new Date().toISOString();
       const payoutId = 'PAYOUT-' + Date.now();
 
       const payoutRecord = {
         payout_id: payoutId,
         shift_id: shiftId,
+        category_id: categoryId,
         amount: parseFloat(amount) || 0,
         reason: reason,
         payee: payee,
@@ -892,6 +1038,30 @@
 
       this.logAudit('CASH_PAYOUT', 'FINANCE', `จ่ายเงินสด ฿${payoutRecord.amount} เหตุผล: ${reason} (อนุมัติโดย: ${approvedBy})`, approvedBy);
       return payoutRecord;
+    }
+
+    /**
+     * ยกเลิกรายการจ่ายเงินสดและคืนยอดกลับเข้าเก๊ะ (Void Payout)
+     */
+    voidCashPayout(payoutId, reason = 'ยกเลิกรายการโดยผู้ดูแลระบบ', operatorId = 'ADMIN') {
+      const payout = this.get('cash_payouts', payoutId);
+      if (!payout) return null;
+
+      if (payout.shift_id) {
+        const shift = this.get('cash_sessions', payout.shift_id);
+        if (shift) {
+          const newPayouts = Math.max(0, (shift.cash_payouts || 0) - (payout.amount || 0));
+          const newExpected = (shift.opening_float || 0) + (shift.cash_sales || 0) - newPayouts;
+          this.update('cash_sessions', payout.shift_id, {
+            cash_payouts: newPayouts,
+            expected_cash: newExpected
+          });
+        }
+      }
+
+      this.delete('cash_payouts', payoutId);
+      this.logAudit('VOID_PAYOUT', 'FINANCE', `ยกเลิกรายการจ่าย ${payoutId} จำนวน ฿${payout.amount} เหตุผล: ${reason}`, operatorId);
+      return true;
     }
 
     /**
@@ -987,6 +1157,60 @@
     }
 
     /**
+     * คำนวณรายงานสรุปกำไร-ขาดทุน (P&L: Profit & Loss Statement)
+     * รายได้ - ค่าใช้จ่าย = กำไร/ขาดทุนสุทธิ
+     */
+    getProfitAndLossSummary() {
+      const orders = this.getAll('orders', o => o.payment_status === 'PAID');
+      const ticketRevenue = orders.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+      const otherRevenue = 0;
+      const totalRevenue = ticketRevenue + otherRevenue;
+
+      const payouts = this.getAll('cash_payouts');
+      const totalExpense = payouts.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+      const netProfit = totalRevenue - totalExpense;
+      const isProfitable = netProfit >= 0;
+
+      // รายได้แยกตามหมวดหมู่
+      const revCategories = this.getAll('revenue_categories');
+      const revenueByCategory = revCategories.map(cat => {
+        let amount = 0;
+        if (cat.category_id === 'REV-TICKET') {
+          amount = ticketRevenue;
+        }
+        return {
+          category_id: cat.category_id,
+          name: cat.name,
+          amount: amount
+        };
+      });
+
+      // ค่าใช้จ่ายแยกตามหมวดหมู่
+      const expCategories = this.getAll('expense_categories');
+      const expenseByCategory = expCategories.map(cat => {
+        const catPayouts = payouts.filter(p => p.category_id === cat.category_id || (!p.category_id && cat.category_id === 'EXP-CATERING'));
+        const amount = catPayouts.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+        return {
+          category_id: cat.category_id,
+          name: cat.name,
+          amount: amount
+        };
+      });
+
+      return {
+        ticketRevenue: ticketRevenue,
+        otherRevenue: otherRevenue,
+        totalRevenue: totalRevenue,
+        totalExpense: totalExpense,
+        netProfit: netProfit,
+        isProfitable: isProfitable,
+        revenueByCategory: revenueByCategory,
+        expenseByCategory: expenseByCategory
+      };
+    }
+
+    /**
      * ส่งออกฐานข้อมูลทั้งหมดเป็น JSON สำรองข้อมูล
      */
     exportJSON() {
@@ -994,7 +1218,8 @@
         'events', 'ticket_tiers', 'gates', 'staff',
         'cash_sessions', 'cash_payouts', 'tickets',
         'wristbands', 'orders', 'payments',
-        'audit_logs', 'security_incidents'
+        'audit_logs', 'security_incidents',
+        'revenue_categories', 'expense_categories', 'users'
       ];
       const backup = {
         exportedAt: new Date().toISOString(),

@@ -13,17 +13,21 @@
 
   <!-- KIOSK HEADER -->
   <header class="ep-kiosk-header">
-    <div style="display: flex; align-items: center; gap: 14px;">
-      <div class="ep-logo-badge" style="background: linear-gradient(135deg, #10b981 0%, #047857 100%); color: #fff;">
-        GATE KIOSK
-      </div>
-      <div>
-        <h2 style="font-size: 1.1rem; color: #fff; font-weight: 800;" id="kioskGateTitle">
-          🚪 GATE 1: NORTH KIOSK (ZONE A / VIP)
-        </h2>
-        <p style="font-size: 0.78rem; color: var(--accent-cyan);">
-          เจ้าหน้าที่ประจำจุด: <span id="kioskGuardName">การ์ดประตูสมบัติ (STF-03)</span> | ระบบ 3 ประสาน (QR + ริสต์แบนด์ + ใบหน้า)
-        </p>
+    <div class="ep-brand" style="display: flex; align-items: center; gap: 14px;">
+      <img src="assets/ice-logo-new.jpg" alt="Ice Pro Sound Logo" class="ep-header-logo" style="width: 46px; height: 46px; border-radius: 50%; object-fit: cover; border: 2px solid #38bdf8; box-shadow: 0 2px 10px rgba(0,0,0,0.4); display: block;" onerror="this.src='assets/ice-logo.jpg'">
+      <div style="display: flex; flex-direction: column; justify-content: center;">
+        <h1 style="font-size: 1.25rem; font-weight: 800; color: #60a5fa; letter-spacing: 0.5px; margin: 0; line-height: 1.2;">
+          บริษัท ไอซ์ โปรซาวด์ จำกัด
+        </h1>
+        <div style="display: flex; align-items: center; gap: 8px; margin-top: 2px;">
+          <h2 style="font-size: 0.88rem; color: #fff; font-weight: 700; margin: 0;" id="kioskGateTitle">
+            🚪 GATE 1: NORTH KIOSK (ZONE A / VIP)
+          </h2>
+          <span style="color: rgba(255,255,255,0.3);">|</span>
+          <span style="font-size: 0.78rem; color: var(--accent-cyan);">
+            จนท.: <strong id="kioskGuardName" style="color: var(--accent-gold);">การ์ดประตูสมบัติ (STF-03)</strong>
+          </span>
+        </div>
       </div>
     </div>
 
@@ -34,22 +38,48 @@
       <span class="ep-nav-btn" style="background: rgba(0, 229, 255, 0.1); border-color: var(--accent-cyan); color: var(--accent-cyan); font-size: 0.78rem;" id="kioskNetBadge">
         📡 ตรวจหาเครื่องแม่ข่าย LAN...
       </span>
-      <button type="button" class="ep-nav-btn" onclick="toggleKioskFullscreen()" id="btnFullscreen">
-        ⛶ ขยายเต็มจอ
-      </button>
-      <a href="index.html" class="ep-nav-btn" style="background: #1f2937;">
-        🎫 ไปหน้าขายตั๋ว
-      </a>
-      <a href="admin.html" class="ep-nav-btn btn-admin">
-        📊 ไปหน้า Admin
-      </a>
+      <!-- KIOSK TECHNICIAN & GATE CONTROLS DROPDOWN -->
+      <div class="ep-dropdown">
+        <button type="button" class="ep-dropdown-btn">
+          🛡️ เมนูช่างเทคนิคและประตู ▾
+        </button>
+        <div class="ep-dropdown-menu">
+          <button type="button" class="ep-dropdown-item" onclick="toggleKioskFullscreen()">
+            <span>⛶ ขยายเต็มจอ (Fullscreen Mode)</span>
+            <span class="ep-badge ep-badge-pass" style="font-size: 0.68rem;">Lock</span>
+          </button>
+          <button type="button" class="ep-dropdown-item" onclick="location.reload()">
+            <span>🔄 รีเฟรชระบบ Kiosk ทันที</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- PORTALS DROPDOWN -->
+      <div class="ep-dropdown">
+        <button type="button" class="ep-dropdown-btn">
+          🌐 สลับหน้าจอทำงาน ▾
+        </button>
+        <div class="ep-dropdown-menu">
+          <a href="booking.html" class="ep-dropdown-item" target="_blank">
+            <span>📱 จองตั๋วออนไลน์ (booking.html)</span>
+          </a>
+          <a href="index.html" class="ep-dropdown-item" target="_blank">
+            <span>🎫 หน้าจำหน่ายบัตร (index.html)</span>
+          </a>
+          <a href="admin.html" class="ep-dropdown-item" target="_blank">
+            <span>📊 ศูนย์บัญชาการ Admin (admin.html)</span>
+          </a>
+        </div>
+      </div>
+
+      <span class="ep-auth-user-badge-container"></span>
     </div>
   </header>
 
-  <!-- WEB AUDIO AUTOPLAY UNLOCK BANNER (SHOWN IF AUDIO SUSPENDED) -->
-  <div id="kioskUnlockBanner" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #000; padding: 14px 20px; text-align: center; font-weight: 800; font-size: 1.05rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 12px; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);" onclick="unlockKioskAudioAndCamera()">
-    <span>🔊 แตะที่นี่เพื่อเริ่มต้นระบบตรวจบัตร Kiosk และเปิดใช้งานลำโพงไซเรนเตือนภัย (Arm System)</span>
-    <button type="button" style="background: #000; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; font-weight: 700; cursor: pointer;">เปิดระบบทันที</button>
+  <!-- WEB AUDIO AUTOPLAY UNLOCK BANNER (COMPACT ARM BAR) -->
+  <div id="kioskUnlockBanner" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #000; padding: 8px 16px; text-align: center; font-weight: 700; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);" onclick="unlockKioskAudioAndCamera()">
+    <span>🔊 แตะเพื่อเปิดใช้งานระบบตรวจบัตร Kiosk และลำโพงไซเรน</span>
+    <button type="button" style="background: #000; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-weight: 700; cursor: pointer; font-size: 0.8rem;">เปิดระบบ</button>
   </div>
 
   <!-- MAIN KIOSK SCANNING WORKSPACE -->
@@ -62,7 +92,7 @@
           <div class="ep-card-title" style="font-size: 0.95rem;">
             <span>📸 กล้องตรวจจับและบันทึกใบหน้า (Face Capture Engine)</span>
           </div>
-          <span style="font-size: 0.75rem; color: var(--accent-green);">360x360 &lt; 40KB (&lt; 0.05s)</span>
+          <span style="font-size: 0.75rem; color: var(--accent-green);">🟢 พร้อมตรวจจับ</span>
         </div>
 
         <!-- CAMERA VIEWPORT -->
@@ -253,6 +283,39 @@
   <script src="js/hardwareBridge.js"></script>
   <script src="js/db.js"></script>
   <script src="js/firebaseAdapter.js"></script>
+  <script src="js/authGuard.js"></script>
   <script src="js/gate.js"></script>
+  <script>
+    function initDropdowns() {
+      document.addEventListener('click', (e) => {
+        const isDropdownBtn = e.target.closest('.ep-dropdown-btn') || e.target.closest('.ep-dropdown-toggle');
+        const isInsideDropdown = e.target.closest('.ep-dropdown');
+
+        if (!isInsideDropdown) {
+          document.querySelectorAll('.ep-dropdown.show').forEach(d => d.classList.remove('show'));
+        } else if (isDropdownBtn) {
+          const parentDropdown = isDropdownBtn.closest('.ep-dropdown');
+          const wasOpen = parentDropdown.classList.contains('show');
+          document.querySelectorAll('.ep-dropdown.show').forEach(d => d.classList.remove('show'));
+          if (!wasOpen) {
+            parentDropdown.classList.add('show');
+          }
+        }
+      });
+
+      document.querySelectorAll('.ep-dropdown-item').forEach(item => {
+        item.addEventListener('click', () => {
+          document.querySelectorAll('.ep-dropdown.show').forEach(d => d.classList.remove('show'));
+        });
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      initDropdowns();
+      if (typeof EventPayAuth !== 'undefined') {
+        EventPayAuth.protectPage('kiosk');
+      }
+    });
+  </script>
 </body>
 </html>

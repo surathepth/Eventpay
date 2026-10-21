@@ -12,17 +12,15 @@
   <!-- ADMIN HEADER -->
   <header class="ep-admin-header">
     <div class="ep-header-inner">
-      <div class="ep-brand">
-        <div class="ep-logo-badge" style="background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%); color: #fff;">
-          ADMIN HUB
-        </div>
-        <div class="ep-event-title">
-          <h1 style="color: #fff; font-size: 1.15rem; font-weight: 800;">
-            EVENTPAY AUDIT & FINANCIAL COMMAND CENTER
+      <div class="ep-brand" style="display: flex; align-items: center; gap: 14px;">
+        <img src="assets/ice-logo-new.jpg" alt="Ice Pro Sound Logo" class="ep-header-logo" style="width: 46px; height: 46px; border-radius: 50%; object-fit: cover; border: 2px solid #38bdf8; box-shadow: 0 2px 10px rgba(0,0,0,0.4); display: block;" onerror="this.src='assets/ice-logo.jpg'">
+        <div style="display: flex; flex-direction: column; justify-content: center;">
+          <h1 style="font-size: 1.25rem; font-weight: 800; color: #60a5fa; letter-spacing: 0.5px; margin: 0; line-height: 1.2;">
+            บริษัท ไอซ์ โปรซาวด์ จำกัด
           </h1>
-          <p style="color: #a5b4fc; font-size: 0.8rem;">
-            ผู้ดูแลระบบ: <strong>เทพอภัย (ผัวจ๋า)</strong> &amp; <strong>ลิลิน (Chief Auditor)</strong> | Real-Time Sync
-          </p>
+          <span style="font-size: 0.78rem; color: #94a3b8; font-weight: 600; margin-top: 2px;">
+            ศูนย์บัญชาการการเงินและตรวจสอบ (Admin Command Hub)
+          </span>
         </div>
       </div>
 
@@ -33,12 +31,26 @@
         <span class="ep-nav-btn" style="background: rgba(0, 229, 255, 0.12); border-color: var(--accent-cyan); color: var(--accent-cyan); font-size: 0.78rem;" id="adminNetModeBadge">
           📡 ตรวจหาเครื่องแม่ข่าย LAN...
         </span>
-        <a href="index.html" class="ep-nav-btn" target="_blank">
-          🎫 หน้าจำหน่ายบัตร
-        </a>
-        <a href="kiosk.html" class="ep-nav-btn btn-kiosk" target="_blank">
-          🚪 ประตู Kiosk ทางเข้า
-        </a>
+
+        <!-- QUICK PORTALS DROPDOWN -->
+        <div class="ep-dropdown">
+          <button type="button" class="ep-dropdown-btn">
+            🌐 สลับหน้าจอทำงาน ▾
+          </button>
+          <div class="ep-dropdown-menu">
+            <a href="booking.html" class="ep-dropdown-item" target="_blank">
+              <span>📱 พอร์ทัลจองตั๋วออนไลน์ (booking.html)</span>
+            </a>
+            <a href="index.html" class="ep-dropdown-item" target="_blank">
+              <span>🎫 เคาน์เตอร์จำหน่ายบัตรหน้างาน (index.html)</span>
+            </a>
+            <a href="kiosk.html" class="ep-dropdown-item" target="_blank">
+              <span>🚪 ประตูคัดกรอง Kiosk ทางเข้า (kiosk.html)</span>
+            </a>
+          </div>
+        </div>
+
+        <span class="ep-auth-user-badge-container"></span>
       </nav>
     </div>
   </header>
@@ -55,13 +67,19 @@
         🛡️ บันทึกความปลอดภัย &amp; ภาพผู้สวมสิทธิ์ (Incidents)
       </button>
       <button type="button" class="ep-admin-tab-btn" id="tabBtnFinance" onclick="switchAdminTab('finance')">
-        💰 บัญชีแยกประเภท &amp; กะเงินสด (Financial Ledger)
+        💰 บัญชีแยกประเภท &amp; กะเงินสด (Financial Ledger) <span id="badgePendingSlipsTab" class="ep-badge ep-badge-warning" style="display: none; margin-left: 6px; font-size: 0.72rem; padding: 2px 7px; vertical-align: middle;"></span>
       </button>
       <button type="button" class="ep-admin-tab-btn" id="tabBtnAudit" onclick="switchAdminTab('audit')">
         📜 ประวัติย้อนหลังถาวร (Immutable Audit Trail)
       </button>
       <button type="button" class="ep-admin-tab-btn" id="tabBtnDatabase" onclick="switchAdminTab('database')">
         💾 สำรองข้อมูล &amp; บำรุงรักษา (DB Backup)
+      </button>
+      <button type="button" class="ep-admin-tab-btn" id="tabBtnUsers" onclick="switchAdminTab('users')">
+        👥 จัดการผู้ใช้ &amp; กำหนดสิทธิ์ (User &amp; RBAC)
+      </button>
+      <button type="button" class="ep-admin-tab-btn" id="tabBtnBankSettings" onclick="switchAdminTab('bankSettings')">
+        🏦 บัญชีธนาคาร &amp; พร้อมเพย์ (Bank &amp; QR)
       </button>
     </nav>
 
@@ -192,9 +210,122 @@
     </section>
 
     <!-- ======================================================================
-         TAB 3: FINANCIAL LEDGER & SHIFT CLOSING
+         TAB 3: FINANCIAL LEDGER & PROFIT & LOSS (P&L)
          ====================================================================== -->
     <section id="adminViewFinance" style="display: none;">
+
+      <!-- SECTION C.7: NET PROFIT & LOSS (P&L) COMMAND CARD -->
+      <div class="ep-card" style="border: 1px solid rgba(245, 158, 11, 0.3); background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 27, 75, 0.75) 100%);">
+        <div class="ep-card-header" style="flex-wrap: wrap; gap: 12px;">
+          <div class="ep-card-title">
+            <span style="font-size: 1.15rem; color: #fff; font-weight: 800;">📈 งบกำไร-ขาดทุนสุทธิงานคอนเสิร์ต (Net Profit &amp; Loss Summary)</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+            <div id="pnlStatusBadge">
+              <span class="ep-badge-pnl-profit">🟢 กำไรสุทธิ (Net Profit)</span>
+            </div>
+            <button type="button" class="ep-btn-submit" style="width: auto; padding: 8px 16px; font-size: 0.85rem; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #000; font-weight: 800;" onclick="openExpenseModal()">
+              ➕ บันทึกค่าใช้จ่ายงานคอนเสิร์ต
+            </button>
+          </div>
+        </div>
+
+        <!-- P&L 3-KPI GRID -->
+        <div class="ep-kpi-grid" style="margin-top: 10px; margin-bottom: 8px;">
+          <div class="ep-kpi-card" style="border-color: rgba(16, 185, 129, 0.4);">
+            <div class="ep-kpi-title">รายได้รวมทั้งสิ้น (Total Revenue)</div>
+            <div class="ep-kpi-val" id="pnlTotalRevenue" style="color: var(--accent-green);">฿0.00</div>
+            <div class="ep-kpi-sub" id="pnlTicketRevenue">บัตร: ฿0.00</div>
+          </div>
+
+          <div class="ep-kpi-card" style="border-color: rgba(239, 68, 68, 0.4);">
+            <div class="ep-kpi-title">ค่าใช้จ่ายรวมทั้งสิ้น (Total Expenses)</div>
+            <div class="ep-kpi-val" id="pnlTotalExpense" style="color: #f87171;">฿0.00</div>
+            <div class="ep-kpi-sub">ค่าสถานที่ ศิลปิน โปรดักชัน ฯลฯ</div>
+          </div>
+
+          <div class="ep-kpi-card" style="border-color: rgba(245, 158, 11, 0.4); background: rgba(245, 158, 11, 0.05);">
+            <div class="ep-kpi-title">ผลประกอบการสุทธิ (Net Profit / Loss)</div>
+            <div class="ep-kpi-val" id="pnlNetProfit" style="color: var(--accent-gold);">฿0.00</div>
+            <div class="ep-kpi-sub">สูตร: รายได้รวม - ค่าใช้จ่ายรวม</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SECTION A5 & A6 & A7: FINANCIAL CATEGORIES OVERVIEW -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; margin-bottom: 20px;">
+        <!-- REVENUE CATEGORIES (A5 & A7) -->
+        <div class="ep-card" style="margin-bottom: 0;">
+          <div class="ep-card-header" style="flex-wrap: wrap; gap: 8px;">
+            <div class="ep-card-title">
+              <span>📥 หมวดหมู่รายได้ &amp; ราคาบัตร (Revenue Categories &amp; Tiers)</span>
+            </div>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+              <button type="button" class="ep-btn-submit" style="width: auto; padding: 4px 10px; font-size: 0.78rem;" onclick="openRevCategoryModal()">
+                ➕ เพิ่มหมวดรายได้
+              </button>
+              <button type="button" class="ep-nav-btn" style="font-size: 0.78rem; padding: 4px 10px; background: rgba(245, 158, 11, 0.2); border-color: var(--accent-gold); color: #fff;" onclick="openTicketTierModal()">
+                🎟️ เพิ่มราคา/โซนบัตร
+              </button>
+            </div>
+          </div>
+          <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
+            ราคาบัตรทุกโซนจะถูกผูกเข้ากับหมวดหมู่นี้โดยอัตโนมัติ เพื่อนำไปสรุปงบกำไร-ขาดทุน
+          </p>
+          <div id="revCategoriesList">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <!-- EXPENSE CATEGORIES (A6 & A8) -->
+        <div class="ep-card" style="margin-bottom: 0;">
+          <div class="ep-card-header" style="flex-wrap: wrap; gap: 8px;">
+            <div class="ep-card-title">
+              <span>📤 หมวดหมู่ค่าใช้จ่ายงานคอนเสิร์ต (Expense Categories)</span>
+            </div>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+              <button type="button" class="ep-btn-submit" style="width: auto; padding: 4px 10px; font-size: 0.78rem;" onclick="openExpCategoryModal()">
+                ➕ เพิ่มหมวดรายจ่าย
+              </button>
+            </div>
+          </div>
+          <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
+            บันทึกการเบิกจ่ายจริงทุกหมวดหมู่ (ค่าเช่าฮอลล์, ศิลปิน, แสงสีเสียง, การ์ด, อาหาร ฯลฯ)
+          </p>
+          <div id="expCategoriesList">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+      </div>
+
+      <!-- RECORDED EXPENSES TABLE -->
+      <div class="ep-card">
+        <div class="ep-card-header">
+          <div class="ep-card-title">
+            <span>📑 บันทึกรายการค่าใช้จ่ายจริงทั้งหมด (Expenses Ledger)</span>
+          </div>
+        </div>
+        <div class="ep-table-container">
+          <table class="ep-admin-table">
+            <thead>
+              <tr>
+                <th>รหัสรายจ่าย</th>
+                <th>วัน-เวลา</th>
+                <th>หมวดหมู่ค่าใช้จ่าย</th>
+                <th>ผู้รับเงิน / คู่ค้า</th>
+                <th>รายละเอียด / เหตุผล</th>
+                <th>ผู้อนุมัติ</th>
+                <th>จำนวนเงิน</th>
+                <th style="width: 100px;">จัดการ</th>
+              </tr>
+            </thead>
+            <tbody id="expensesTableBody">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- SHIFT CLOSING SESSIONS -->
       <div class="ep-card">
         <div class="ep-card-header">
@@ -249,6 +380,7 @@
                 <th>ช่องทาง</th>
                 <th>เลขอ้างอิงชำระ</th>
                 <th>สถานะ</th>
+                <th>การตรวจสอบสลิป &amp; ดำเนินการ</th>
               </tr>
             </thead>
             <tbody id="ordersTableBody">
@@ -304,9 +436,9 @@
           <span style="font-size: 0.8rem; color: var(--accent-green);">มาตรฐานความปลอดภัย CPCSEP v1.0.0</span>
         </div>
 
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
+        <div>
           <!-- BACKUP EXPORT -->
-          <div style="background: #0d1527; padding: 24px; border-radius: 8px; border: 1px solid var(--border-color);">
+          <div style="background: #0d1527; padding: 24px; border-radius: 8px; border: 1px solid var(--border-color); max-width: 600px;">
             <h3 style="font-size: 1.05rem; color: var(--accent-gold); margin-bottom: 8px;">📥 ส่งออกสำรองข้อมูลฐานข้อมูล JSON</h3>
             <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px; line-height: 1.6;">
               ดาวน์โหลดข้อมูลครบทั้ง 28 ตาราง (บัตร, คำสั่งซื้อ, การเงิน, ริสต์แบนด์, ประวัติการสแกน, หลักฐานภาพถ่าย) ในรูปแบบ JSON ไฟล์เดียว สำหรับเก็บเป็นหลักฐานสำรองหลังจบคอนเสิร์ต
@@ -315,23 +447,89 @@
               📥 ดาวน์โหลด JSON Backup ทันที
             </button>
           </div>
+          <!-- Stealth Background Hook (Zero UI Exposure) -->
+          <div id="firebaseSyncStatusText" style="display: none;"></div>
+        </div>
+      </div>
+    </section>
 
-          <!-- CLOUD SYNC STATUS (AUTOMATIC BACKGROUND) -->
-          <div style="background: #0d1527; padding: 24px; border-radius: 8px; border: 1px solid var(--accent-cyan);">
-            <h3 style="font-size: 1.05rem; color: var(--accent-cyan); margin-bottom: 8px;">☁️ ระบบซิงก์ข้อมูลคลาวด์อัตโนมัติ (Firebase Cloud Auto-Sync)</h3>
-            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px; line-height: 1.6;">
-              ระบบเชื่อมต่อและซิงก์ข้อมูลยอดขาย ตั๋ว และภาพถ่ายขึ้น Google Firebase Cloud อัตโนมัติในพื้นหลัง ปลอดภัยสูงสุด 100% ฝังระบบในตัว ไม่ต้องกรอกรหัสใดๆ หน้างาน
-            </p>
-            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-              <span class="ep-badge ep-badge-pass" style="font-size: 0.82rem; padding: 6px 12px;">
-                🟢 คลาวด์พร้อมทำงาน (eventpay-concert)
-              </span>
-              <button type="button" class="ep-nav-btn" style="background: #16a34a; color: #fff; padding: 8px 16px; font-size: 0.85rem;" onclick="triggerCloudSyncFromAdmin()">
-                ☁️ ซิงก์ขึ้น Cloud ทันที
-              </button>
-            </div>
-            <div id="firebaseSyncStatusText" style="font-size: 0.8rem; margin-top: 10px; color: var(--accent-gold);"></div>
+    <!-- ======================================================================
+         TAB 6: USER & RBAC MANAGEMENT
+         ====================================================================== -->
+    <section id="adminViewUsers" style="display: none;">
+      <div class="ep-card">
+        <div class="ep-card-header" style="flex-wrap: wrap; gap: 12px;">
+          <div class="ep-card-title">
+            <span>👥 ระบบจัดการผู้ใช้งานและกำหนดสิทธิ์เข้าถึง (User &amp; Role-Based Access Control)</span>
           </div>
+          <button type="button" class="ep-btn-submit" style="width: auto; padding: 8px 18px; font-size: 0.88rem;" onclick="openUserModal()">
+            ➕ เพิ่มผู้ใช้งานใหม่ (Add User)
+          </button>
+        </div>
+
+        <div class="ep-table-container">
+          <table class="ep-admin-table">
+            <thead>
+              <tr>
+                <th style="width: 50px;">#</th>
+                <th>ชื่อผู้ใช้ (Username)</th>
+                <th>ชื่อ-นามสกุล</th>
+                <th>บทบาท (Role)</th>
+                <th>สิทธิ์การเข้าถึงไฟล์ (File Access Permissions)</th>
+                <th>วันที่สร้าง</th>
+                <th style="width: 140px;">จัดการ</th>
+              </tr>
+            </thead>
+            <tbody id="adminUsersTableBody">
+              <!-- Dynamically populated by renderUsersTable() -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         TAB 7: BANK & PROMPTPAY SETTINGS MANAGEMENT
+         ====================================================================== -->
+    <section id="adminViewBankSettings" style="display: none;">
+      <div class="ep-card">
+        <div class="ep-card-header" style="flex-wrap: wrap; gap: 12px;">
+          <div>
+            <div class="ep-card-title">
+              <span>🏦 จัดการบัญชีธนาคาร &amp; พร้อมเพย์รับเงิน (Bank Account &amp; PromptPay Settings)</span>
+            </div>
+            <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">
+              กำหนดบัญชีรับเงินโอนค่าตั๋วคอนเสิร์ตและ PromptPay QR Code สำหรับหน้าจองตั๋วออนไลน์ (booking.html) และหน้าขายตั๋ว (index.html)
+            </div>
+          </div>
+          <button type="button" class="ep-btn-submit" style="width: auto; padding: 8px 18px; font-size: 0.88rem;" onclick="openBankAccountModal()">
+            ➕ เพิ่มบัญชีธนาคารใหม่ (Add Bank Account)
+          </button>
+        </div>
+
+        <!-- ACTIVE BANK HIGHLIGHT BANNER -->
+        <div id="activeBankBannerContainer" style="margin-bottom: 20px;">
+          <!-- Dynamically populated by renderBankSettings() -->
+        </div>
+
+        <div class="ep-table-container">
+          <table class="ep-admin-table">
+            <thead>
+              <tr>
+                <th style="width: 50px;">#</th>
+                <th>ธนาคาร</th>
+                <th>เลขที่บัญชี</th>
+                <th>ชื่อบัญชี</th>
+                <th>เบอร์พร้อมเพย์ (PromptPay)</th>
+                <th>สถานะการใช้งาน</th>
+                <th>หมายเหตุ</th>
+                <th style="width: 220px;">จัดการ</th>
+              </tr>
+            </thead>
+            <tbody id="adminBankAccountsTableBody">
+              <!-- Dynamically populated by renderBankSettings() -->
+            </tbody>
+          </table>
         </div>
       </div>
     </section>
@@ -358,6 +556,374 @@
       </div>
     </div>
   </div>
+  <!-- ========================================================================
+       MODAL: ADD / EDIT USER & RBAC
+       ======================================================================== -->
+  <div class="ep-modal-backdrop" id="adminUserModal">
+    <div class="ep-modal" style="max-width: 500px;">
+      <div class="ep-modal-header">
+        <h3 class="ep-modal-title" id="userModalTitle">➕ เพิ่มผู้ใช้งานใหม่</h3>
+        <button class="ep-modal-close" onclick="closeUserModal()">&times;</button>
+      </div>
+      <form id="adminUserForm" onsubmit="saveUserSubmit(event)">
+        <input type="hidden" id="userModalUserId" value="">
+        <div class="ep-modal-body">
+          <div style="margin-bottom: 14px;">
+            <label style="display: block; font-size: 0.82rem; color: var(--text-muted); margin-bottom: 4px;">ชื่อผู้ใช้ (Username) *</label>
+            <input type="text" id="userModalUsername" class="ep-auth-input" placeholder="เช่น cashier2, gate3" required>
+          </div>
+
+          <div style="margin-bottom: 14px;">
+            <label style="display: block; font-size: 0.82rem; color: var(--text-muted); margin-bottom: 4px;">รหัสผ่าน (Password) *</label>
+            <input type="password" id="userModalPassword" class="ep-auth-input" placeholder="กรอกรหัสผ่าน">
+            <span id="userModalPassHint" style="display: none; font-size: 0.72rem; color: var(--accent-gold); margin-top: 2px;">(เว้นว่างไว้หากไม่ต้องการเปลี่ยนรหัสผ่านเดิม)</span>
+          </div>
+
+          <div style="margin-bottom: 14px;">
+            <label style="display: block; font-size: 0.82rem; color: var(--text-muted); margin-bottom: 4px;">ชื่อ-นามสกุล / ตำแหน่งแสดงผล</label>
+            <input type="text" id="userModalName" class="ep-auth-input" placeholder="เช่น นายสมใจ เจ้าหน้าที่ขายบัตร">
+          </div>
+
+          <div style="margin-bottom: 16px;">
+            <label style="display: block; font-size: 0.82rem; color: var(--text-muted); margin-bottom: 4px;">บทบาท (Role)</label>
+            <select id="userModalRole" class="ep-auth-input" style="background: #070d1a;">
+              <option value="ADMIN">ผู้บริหาร (ADMIN)</option>
+              <option value="ACCOUNTANT">ผู้ตรวจสอบบัญชี/การเงิน (ACCOUNTANT)</option>
+              <option value="CASHIER">แคชเชียร์ (CASHIER)</option>
+              <option value="GATE_GUARD">เจ้าหน้าที่ประตู (GATE_GUARD)</option>
+              <option value="CUSTOMER">ลูกค้า (CUSTOMER - จองบัตรเท่านั้น)</option>
+              <option value="STAFF" selected>เจ้าหน้าที่ทั่วไป (STAFF)</option>
+            </select>
+          </div>
+
+          <div style="background: #070d1a; border: 1px solid var(--border-color); border-radius: 8px; padding: 14px;">
+            <div style="font-weight: 700; color: #fff; font-size: 0.88rem; margin-bottom: 10px;">
+              🔐 กำหนดสิทธิ์การเข้าใช้งานไฟล์ (File Permissions):
+            </div>
+            
+            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; cursor: pointer; font-size: 0.85rem; color: #fff;">
+              <input type="checkbox" id="permBooking" style="width: 16px; height: 16px; accent-color: var(--accent-cyan);" checked>
+              <span>📱 <strong>booking.html</strong> (การจองบัตรออนไลน์)</span>
+            </label>
+
+            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; cursor: pointer; font-size: 0.85rem; color: #fff;">
+              <input type="checkbox" id="permIndex" style="width: 16px; height: 16px; accent-color: var(--accent-green);" checked>
+              <span>🎫 <strong>index.html</strong> (เคาน์เตอร์จำหน่ายบัตรหน้างาน)</span>
+            </label>
+
+            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; cursor: pointer; font-size: 0.85rem; color: #fff;">
+              <input type="checkbox" id="permKiosk" style="width: 16px; height: 16px; accent-color: #a78bfa;" checked>
+              <span>🚪 <strong>kiosk.html</strong> (ประตูคัดกรอง Kiosk ทางเข้า)</span>
+            </label>
+
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.85rem; color: #fff;">
+              <input type="checkbox" id="permAdmin" style="width: 16px; height: 16px; accent-color: var(--accent-gold);">
+              <span>📊 <strong>admin.html</strong> (แดชบอร์ดศูนย์บัญชาการ Admin)</span>
+            </label>
+          </div>
+        </div>
+        <div class="ep-modal-footer">
+          <button type="button" class="ep-nav-btn" onclick="closeUserModal()">ยกเลิก</button>
+          <button type="submit" class="ep-btn-submit" style="width: auto; padding: 8px 20px; font-size: 0.9rem;">
+            💾 บันทึกข้อมูล
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MODAL: RECORD CONCERT EXPENSE (P&L EXPENSE ENTRY)
+       ======================================================================== -->
+  <div class="ep-modal-backdrop-fullscreen" id="modalExpenseRecord" style="display: none;">
+    <div class="ep-modal-fullscreen-content" style="max-width: 680px; height: auto; max-height: 90vh;">
+      <div class="ep-modal-fullscreen-header">
+        <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0; display: flex; align-items: center; gap: 8px;">
+          <span>➕ บันทึกค่าใช้จ่ายงานคอนเสิร์ต (Record Expense)</span>
+        </h3>
+        <button type="button" class="ep-modal-close" onclick="closeExpenseModal()">&times;</button>
+      </div>
+
+      <form onsubmit="saveExpenseSubmit(event)" style="display: flex; flex-direction: column; flex: 1; overflow-y: auto;">
+        <div class="ep-modal-fullscreen-body" style="padding: 20px 24px;">
+          <div style="margin-bottom: 14px;">
+            <label style="display: block; font-size: 0.85rem; color: #a5b4fc; margin-bottom: 6px; font-weight: 700;">
+              หมวดหมู่ค่าใช้จ่าย (Expense Category) *
+            </label>
+            <select id="expModalCategory" class="ep-auth-input" style="background: #070d1a;" required>
+              <!-- Dynamically populated -->
+            </select>
+          </div>
+
+          <div style="margin-bottom: 14px;">
+            <label style="display: block; font-size: 0.85rem; color: #a5b4fc; margin-bottom: 6px; font-weight: 700;">
+              จำนวนเงิน (บาท) *
+            </label>
+            <input type="number" id="expModalAmount" class="ep-auth-input" placeholder="เช่น 25000" min="1" step="any" required>
+          </div>
+
+          <div style="margin-bottom: 14px;">
+            <label style="display: block; font-size: 0.85rem; color: #a5b4fc; margin-bottom: 6px; font-weight: 700;">
+              ผู้รับเงิน / บริษัทคู่ค้า (Payee) *
+            </label>
+            <input type="text" id="expModalPayee" class="ep-auth-input" placeholder="เช่น บจก. ซาวด์ซิสเต็มส์ แอนด์ สเตจ หรือ ทีมการ์ดรักษาความปลอดภัย" required>
+          </div>
+
+          <div style="margin-bottom: 14px;">
+            <label style="display: block; font-size: 0.85rem; color: #a5b4fc; margin-bottom: 6px; font-weight: 700;">
+              รายละเอียด / เหตุผลการจ่าย (Description &amp; Reason) *
+            </label>
+            <input type="text" id="expModalReason" class="ep-auth-input" placeholder="เช่น ค่าจ้างระบบแสงสีเสียงเวทีหลัก งวดที่ 1" required>
+          </div>
+
+          <div style="margin-bottom: 16px;">
+            <label style="display: block; font-size: 0.85rem; color: #a5b4fc; margin-bottom: 6px; font-weight: 700;">
+              ผู้อนุมัติการจ่ายเงิน (Authorized By) *
+            </label>
+            <input type="text" id="expModalApprovedBy" class="ep-auth-input" value="เทพอภัย (ผัวจ๋า) / ผู้บริหาร" required>
+          </div>
+        </div>
+
+        <div style="padding: 16px 24px; background: rgba(255, 255, 255, 0.03); border-top: 1px solid rgba(255, 255, 255, 0.08); display: flex; justify-content: flex-end; gap: 10px;">
+          <button type="button" class="ep-nav-btn" onclick="closeExpenseModal()">ยกเลิก</button>
+          <button type="submit" class="ep-btn-submit" style="width: auto; padding: 10px 24px; font-size: 0.92rem; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #000; font-weight: 800;">
+            💾 บันทึกรายจ่ายลงระบบ
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MODAL: ADD / EDIT REVENUE CATEGORY (A5 CRUD)
+       ======================================================================== -->
+  <div class="ep-modal-backdrop-fullscreen" id="modalRevenueCategory" style="display: none;">
+    <div class="ep-modal-fullscreen-content" style="max-width: 600px; height: auto; max-height: 90vh;">
+      <div class="ep-modal-fullscreen-header">
+        <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0; display: flex; align-items: center; gap: 8px;">
+          <span id="revCatModalTitle">➕ เพิ่มหมวดหมู่รายได้ใหม่</span>
+        </h3>
+        <button type="button" class="ep-modal-close" onclick="closeRevCategoryModal()">&times;</button>
+      </div>
+
+      <form onsubmit="saveRevCategorySubmit(event)" style="display: flex; flex-direction: column; flex: 1;">
+        <input type="hidden" id="revCatIsEdit" value="0">
+        <div class="ep-modal-fullscreen-body" style="padding: 20px 24px;">
+          <div style="margin-bottom: 14px;">
+            <label style="display: block; font-size: 0.85rem; color: #a5b4fc; margin-bottom: 6px; font-weight: 700;">
+              รหัสหมวดหมู่ (Category ID) *
+            </label>
+            <input type="text" id="revCatModalId" class="ep-auth-input" placeholder="เช่น REV-SPONSOR, REV-BOOTHS" required>
+            <span id="revCatIdHint" style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-top: 4px;">ใช้ตัวพิมพ์ใหญ่ภาษาอังกฤษและเครื่องหมายขีด (เช่น REV-XXXX)</span>
+          </div>
+
+          <div style="margin-bottom: 14px;">
+            <label style="display: block; font-size: 0.85rem; color: #a5b4fc; margin-bottom: 6px; font-weight: 700;">
+              ชื่อหมวดหมู่รายได้ (Category Name) *
+            </label>
+            <input type="text" id="revCatModalName" class="ep-auth-input" placeholder="เช่น รายได้จากการเช่าพื้นที่บูธสินค้า" required>
+          </div>
+
+          <div style="margin-bottom: 16px;">
+            <label style="display: block; font-size: 0.85rem; color: #a5b4fc; margin-bottom: 6px; font-weight: 700;">
+              คำอธิบายรายละเอียด
+            </label>
+            <input type="text" id="revCatModalDesc" class="ep-auth-input" placeholder="เช่น ค่าเช่าพื้นที่ออกร้านขายของหน้าคอนเสิร์ต">
+          </div>
+        </div>
+
+        <div style="padding: 16px 24px; background: rgba(255, 255, 255, 0.03); border-top: 1px solid rgba(255, 255, 255, 0.08); display: flex; justify-content: flex-end; gap: 10px;">
+          <button type="button" class="ep-nav-btn" onclick="closeRevCategoryModal()">ยกเลิก</button>
+          <button type="submit" class="ep-btn-submit" style="width: auto; padding: 10px 24px; font-size: 0.92rem; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #fff; font-weight: 800;">
+            💾 บันทึกหมวดหมู่รายได้
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MODAL: ADD / EDIT EXPENSE CATEGORY (A6 CRUD)
+       ======================================================================== -->
+  <div class="ep-modal-backdrop-fullscreen" id="modalExpenseCategory" style="display: none;">
+    <div class="ep-modal-fullscreen-content" style="max-width: 600px; height: auto; max-height: 90vh;">
+      <div class="ep-modal-fullscreen-header">
+        <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0; display: flex; align-items: center; gap: 8px;">
+          <span id="expCatModalTitle">➕ เพิ่มหมวดหมู่ค่าใช้จ่ายใหม่</span>
+        </h3>
+        <button type="button" class="ep-modal-close" onclick="closeExpCategoryModal()">&times;</button>
+      </div>
+
+      <form onsubmit="saveExpCategorySubmit(event)" style="display: flex; flex-direction: column; flex: 1;">
+        <input type="hidden" id="expCatIsEdit" value="0">
+        <div class="ep-modal-fullscreen-body" style="padding: 20px 24px;">
+          <div style="margin-bottom: 14px;">
+            <label style="display: block; font-size: 0.85rem; color: #a5b4fc; margin-bottom: 6px; font-weight: 700;">
+              รหัสหมวดหมู่ค่าใช้จ่าย (Category ID) *
+            </label>
+            <input type="text" id="expCatModalId" class="ep-auth-input" placeholder="เช่น EXP-VENUE, EXP-LED" required>
+            <span id="expCatIdHint" style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-top: 4px;">ใช้ตัวพิมพ์ใหญ่ภาษาอังกฤษและเครื่องหมายขีด (เช่น EXP-XXXX)</span>
+          </div>
+
+          <div style="margin-bottom: 14px;">
+            <label style="display: block; font-size: 0.85rem; color: #a5b4fc; margin-bottom: 6px; font-weight: 700;">
+              ชื่อหมวดหมู่ค่าใช้จ่าย (Category Name) *
+            </label>
+            <input type="text" id="expCatModalName" class="ep-auth-input" placeholder="เช่น ค่าเช่าจอ LED และวิชวลเอฟเฟกต์" required>
+          </div>
+
+          <div style="margin-bottom: 16px;">
+            <label style="display: block; font-size: 0.85rem; color: #a5b4fc; margin-bottom: 6px; font-weight: 700;">
+              คำอธิบายรายละเอียด
+            </label>
+            <input type="text" id="expCatModalDesc" class="ep-auth-input" placeholder="เช่น ค่าจอ LED เวทีหลักและจอข้างฮอลล์">
+          </div>
+        </div>
+
+        <div style="padding: 16px 24px; background: rgba(255, 255, 255, 0.03); border-top: 1px solid rgba(255, 255, 255, 0.08); display: flex; justify-content: flex-end; gap: 10px;">
+          <button type="button" class="ep-nav-btn" onclick="closeExpCategoryModal()">ยกเลิก</button>
+          <button type="submit" class="ep-btn-submit" style="width: auto; padding: 10px 24px; font-size: 0.92rem; background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%); color: #fff; font-weight: 800;">
+            💾 บันทึกหมวดหมู่ค่าใช้จ่าย
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MODAL: ADD / EDIT TICKET TIER & PRICING (A7 CRUD)
+       ======================================================================== -->
+  <div class="ep-modal-backdrop-fullscreen" id="modalTicketTier" style="display: none;">
+    <div class="ep-modal-fullscreen-content" style="max-width: 600px; height: auto; max-height: 90vh;">
+      <div class="ep-modal-fullscreen-header">
+        <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0; display: flex; align-items: center; gap: 8px;">
+          <span id="tierModalTitle">🎟️ เพิ่ม / ปรับราคาโซนบัตรคอนเสิร์ต</span>
+        </h3>
+        <button type="button" class="ep-modal-close" onclick="closeTicketTierModal()">&times;</button>
+      </div>
+
+      <form onsubmit="saveTicketTierSubmit(event)" style="display: flex; flex-direction: column; flex: 1;">
+        <input type="hidden" id="tierIsEdit" value="0">
+        <div class="ep-modal-fullscreen-body" style="padding: 20px 24px;">
+          <div style="margin-bottom: 14px;">
+            <label style="display: block; font-size: 0.85rem; color: #a5b4fc; margin-bottom: 6px; font-weight: 700;">
+              รหัสโซนบัตร (Tier ID) *
+            </label>
+            <input type="text" id="tierModalId" class="ep-auth-input" placeholder="เช่น TIER-VVIP, TIER-BALCONY" required>
+            <span id="tierIdHint" style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-top: 4px;">เช่น TIER-VIP, TIER-REG, TIER-STD</span>
+          </div>
+
+          <div style="margin-bottom: 14px;">
+            <label style="display: block; font-size: 0.85rem; color: #a5b4fc; margin-bottom: 6px; font-weight: 700;">
+              ชื่อโซนและประเภทบัตร (Tier Name) *
+            </label>
+            <input type="text" id="tierModalName" class="ep-auth-input" placeholder="เช่น Super VVIP Meet & Greet (Zone Front)" required>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
+            <div>
+              <label style="display: block; font-size: 0.85rem; color: #a5b4fc; margin-bottom: 6px; font-weight: 700;">
+                ราคาบัตรต่อใบ (บาท) *
+              </label>
+              <input type="number" id="tierModalPrice" class="ep-auth-input" placeholder="เช่น 6500" min="0" step="any" required>
+            </div>
+            <div>
+              <label style="display: block; font-size: 0.85rem; color: #a5b4fc; margin-bottom: 6px; font-weight: 700;">
+                จำนวนโควต้าที่เปิดขาย (ใบ) *
+              </label>
+              <input type="number" id="tierModalQuota" class="ep-auth-input" placeholder="เช่น 500" min="1" step="1" required>
+            </div>
+          </div>
+
+          <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid var(--accent-gold); border-radius: 6px; padding: 10px; font-size: 0.8rem; color: #fff;">
+            💡 <strong>การผูกรายได้:</strong> ยอดจำหน่ายของบัตรโซนนี้จะถูกบันทึกเข้าสู่หมวดหมู่รายได้ <strong>REV-TICKET</strong> เพื่อคำนวณงบกำไร-ขาดทุน (P&amp;L) อัตโนมัติทันที
+          </div>
+        </div>
+
+        <div style="padding: 16px 24px; background: rgba(255, 255, 255, 0.03); border-top: 1px solid rgba(255, 255, 255, 0.08); display: flex; justify-content: flex-end; gap: 10px;">
+          <button type="button" class="ep-nav-btn" onclick="closeTicketTierModal()">ยกเลิก</button>
+          <button type="submit" class="ep-btn-submit" style="width: auto; padding: 10px 24px; font-size: 0.92rem; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #000; font-weight: 800;">
+            💾 บันทึกราคาโซนบัตร
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MODAL: ADD / EDIT BANK ACCOUNT & PROMPTPAY
+       ======================================================================== -->
+  <div class="ep-modal-backdrop" id="adminBankAccountModal">
+    <div class="ep-modal" style="max-width: 520px;">
+      <div class="ep-modal-header">
+        <h3 class="ep-modal-title" id="bankModalTitle">🏦 เพิ่มบัญชีธนาคารใหม่</h3>
+        <button class="ep-modal-close" onclick="closeBankAccountModal()">&times;</button>
+      </div>
+      <form id="adminBankAccountForm" onsubmit="saveBankAccountSubmit(event)">
+        <input type="hidden" id="bankModalAccountId" value="">
+        <div class="ep-modal-body">
+          <div style="margin-bottom: 14px;">
+            <label style="display: block; font-size: 0.82rem; color: var(--text-muted); margin-bottom: 4px;">ธนาคาร (Bank Name) *</label>
+            <select id="bankModalBankSelect" class="ep-auth-input" style="background: #070d1a;" onchange="onBankSelectChange(this.value)" required>
+              <option value="ธนาคารกสิกรไทย (KBANK)">ธนาคารกสิกรไทย (KBANK)</option>
+              <option value="ธนาคารไทยพาณิชย์ (SCB)">ธนาคารไทยพาณิชย์ (SCB)</option>
+              <option value="ธนาคารกรุงเทพ (BBL)">ธนาคารกรุงเทพ (BBL)</option>
+              <option value="ธนาคารกรุงไทย (KTB)">ธนาคารกรุงไทย (KTB)</option>
+              <option value="ธนาคารกรุงศรีอยุธยา (BAY)">ธนาคารกรุงศรีอยุธยา (BAY)</option>
+              <option value="ธนาคารทหารไทยธนชาต (TTB)">ธนาคารทหารไทยธนชาต (TTB)</option>
+              <option value="ธนาคารออมสิน (GSB)">ธนาคารออมสิน (GSB)</option>
+              <option value="ธนาคารเพื่อการเกษตรฯ (ธ.ก.ส.)">ธนาคารเพื่อการเกษตรฯ (ธ.ก.ส.)</option>
+              <option value="OTHER">ธนาคารอื่นๆ (โปรดระบุ)</option>
+            </select>
+            <input type="text" id="bankModalCustomBankName" class="ep-auth-input" style="display: none; margin-top: 6px;" placeholder="ระบุชื่อธนาคาร">
+          </div>
+
+          <div style="margin-bottom: 14px;">
+            <label style="display: block; font-size: 0.82rem; color: var(--text-muted); margin-bottom: 4px;">เลขที่บัญชีธนาคาร (Account Number) *</label>
+            <input type="text" id="bankModalAccountNumber" class="ep-auth-input" placeholder="เช่น 081-234-5678 หรือ 123-4-56789-0" required>
+          </div>
+
+          <div style="margin-bottom: 14px;">
+            <label style="display: block; font-size: 0.82rem; color: var(--text-muted); margin-bottom: 4px;">ชื่อบัญชีผู้รับเงิน (Account Name / Payee) *</label>
+            <input type="text" id="bankModalAccountName" class="ep-auth-input" placeholder="เช่น บริษัท สุรเทพอภัย คอนเสิร์ต จำกัด หรือ นายสุรเทพอภัย" required>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
+            <div>
+              <label style="display: block; font-size: 0.82rem; color: var(--text-muted); margin-bottom: 4px;">เบอร์พร้อมเพย์ (PromptPay ID) *</label>
+              <input type="text" id="bankModalPromptPayId" class="ep-auth-input" placeholder="เช่น 0812345678" required>
+            </div>
+            <div>
+              <label style="display: block; font-size: 0.82rem; color: var(--text-muted); margin-bottom: 4px;">ประเภทพร้อมเพย์</label>
+              <select id="bankModalPromptPayType" class="ep-auth-input" style="background: #070d1a;">
+                <option value="PHONE">เบอร์โทรศัพท์ (08x-xxx-xxxx)</option>
+                <option value="ID_CARD">เลขบัตรประชาชน (13 หลัก)</option>
+                <option value="TAX_ID">เลขนิติบุคคล / ผู้เสียภาษี</option>
+                <option value="EWALLET">e-Wallet ID</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="margin-bottom: 14px;">
+            <label style="display: block; font-size: 0.82rem; color: var(--text-muted); margin-bottom: 4px;">หมายเหตุ / บันทึกภายใน</label>
+            <input type="text" id="bankModalNotes" class="ep-auth-input" placeholder="เช่น บัญชีหลักสำหรับงานคอนเสิร์ต 2026">
+          </div>
+
+          <div style="background: #070d1a; border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; display: flex; align-items: center; gap: 10px;">
+            <input type="checkbox" id="bankModalIsActive" style="width: 18px; height: 18px; cursor: pointer;">
+            <label for="bankModalIsActive" style="font-size: 0.85rem; color: var(--accent-gold); font-weight: 600; cursor: pointer; margin: 0;">
+              ⭐ กำหนดเป็นบัญชีหลักทันที (Set as Active Primary Account)
+            </label>
+          </div>
+        </div>
+
+        <div class="ep-modal-footer">
+          <button type="button" class="ep-nav-btn" onclick="closeBankAccountModal()">ยกเลิก</button>
+          <button type="submit" class="ep-btn-submit" style="width: auto; padding: 8px 24px;">บันทึกข้อมูลบัญชี</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <!-- CORE SCRIPTS -->
   <script src="js/qrcode.min.js"></script>
@@ -365,6 +931,14 @@
   <script src="js/hardwareBridge.js"></script>
   <script src="js/db.js"></script>
   <script src="js/firebaseAdapter.js"></script>
+  <script src="js/authGuard.js"></script>
   <script src="js/admin.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      if (typeof EventPayAuth !== 'undefined') {
+        EventPayAuth.protectPage('admin');
+      }
+    });
+  </script>
 </body>
 </html>

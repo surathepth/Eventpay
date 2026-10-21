@@ -14,19 +14,55 @@
   <!-- HEADER & NAVIGATION -->
   <header class="ep-header">
     <div class="ep-header-inner">
-      <div class="ep-brand">
-        <div class="ep-logo-badge">EVENTPAY</div>
-        <div class="ep-event-title">
-          <h1 id="headerEventName">THEP-APAI & LILIN SUPREME MEGA CONCERT 2026</h1>
-          <p id="headerVenue">IMPACT ARENA HALL 1-4, BANGKOK | 25 ต.ค. 2026</p>
+      <div class="ep-brand" style="display: flex; align-items: center; gap: 14px;">
+        <img src="assets/ice-logo-new.jpg" alt="Ice Pro Sound Logo" class="ep-header-logo" style="width: 46px; height: 46px; border-radius: 50%; object-fit: cover; border: 2px solid #38bdf8; box-shadow: 0 2px 10px rgba(0,0,0,0.4); display: block;" onerror="this.src='assets/ice-logo.jpg'">
+        <div style="display: flex; flex-direction: column; justify-content: center;">
+          <h1 style="font-size: 1.25rem; font-weight: 800; color: #60a5fa; letter-spacing: 0.5px; margin: 0; line-height: 1.2;">
+            บริษัท ไอซ์ โปรซาวด์ จำกัด
+          </h1>
+          <span style="font-size: 0.78rem; color: #94a3b8; font-weight: 600; margin-top: 2px;">
+            เคาน์เตอร์จำหน่ายบัตรและแคชเชียร์ (Ticketing &amp; Cashier)
+          </span>
+          <span id="headerEventName" style="display: none;">THEP-APAI &amp; LILIN SUPREME MEGA CONCERT 2026</span>
+          <span id="headerVenue" style="display: none;">IMPACT ARENA HALL 1-4, BANGKOK | 25 ต.ค. 2026</span>
         </div>
       </div>
       <nav class="ep-nav-links">
-        <button class="ep-nav-btn active" id="btnNavTicketing" onclick="switchMainView('ticketing')">🎫 จำหน่ายบัตร</button>
-        <button class="ep-nav-btn" id="btnNavOrders" onclick="openOrdersModal()">📋 รายการบัตรที่ออกแล้ว</button>
-        <button class="ep-nav-btn" id="btnNavShift" onclick="openShiftModal()">💵 จัดการกะเงินสด</button>
-        <a href="kiosk.html" class="ep-nav-btn btn-kiosk" target="_blank">🚪 ประตู Kiosk ทางเข้า</a>
-        <a href="admin.html" class="ep-nav-btn btn-admin" target="_blank">📊 แดชบอร์ด Admin</a>
+        <!-- CASHIER MASTER DROPDOWN -->
+        <div class="ep-dropdown">
+          <button type="button" class="ep-dropdown-btn">
+            🧾 เมนูงานแคชเชียร์ ▾
+          </button>
+          <div class="ep-dropdown-menu">
+            <button type="button" class="ep-dropdown-item" onclick="openShiftModal()">
+              <span>💵 จัดการกะเงินสด &amp; ปิดกะ</span>
+              <span class="ep-badge ep-badge-warning" style="font-size: 0.68rem;">กะเงินสด</span>
+            </button>
+            <button type="button" class="ep-dropdown-item" onclick="openOrdersModal()">
+              <span>📋 รายการบัตรที่ออกแล้ว (Orders)</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- PORTALS DROPDOWN -->
+        <div class="ep-dropdown">
+          <button type="button" class="ep-dropdown-btn">
+            🌐 สลับหน้าจอทำงาน ▾
+          </button>
+          <div class="ep-dropdown-menu">
+            <a href="booking.html" class="ep-dropdown-item" target="_blank">
+              <span>📱 จองบัตรออนไลน์ (booking.html)</span>
+            </a>
+            <a href="kiosk.html" class="ep-dropdown-item" target="_blank">
+              <span>🚪 ประตู Kiosk ทางเข้า (kiosk.html)</span>
+            </a>
+            <a href="admin.html" class="ep-dropdown-item" target="_blank">
+              <span>📊 แดชบอร์ด Admin (admin.html)</span>
+            </a>
+          </div>
+        </div>
+
+        <span class="ep-auth-user-badge-container"></span>
       </nav>
     </div>
   </header>
@@ -40,7 +76,7 @@
       </div>
       <div class="ep-status-item">
         <span>กะปัจจุบัน: <strong id="barShiftId" style="color: var(--accent-cyan);">กำลังโหลด...</strong></span>
-        <span> | แคชเชียร์: <strong id="barCashierName" style="color: var(--accent-gold);">เทพอภัย & ลิลิน</strong></span>
+        <span id="barCashierName" style="display: none;">เทพอภัย & ลิลิน</span>
         <span id="networkModeBadge" style="background: rgba(0, 229, 255, 0.12); color: var(--accent-cyan); border: 1px solid var(--accent-cyan); font-size: 0.75rem; padding: 2px 8px; border-radius: 12px; margin-left: 8px;">
           📡 โหมดระบบ: กำลังตรวจหาเครื่องแม่ข่าย...
         </span>
@@ -62,16 +98,10 @@
             <span style="font-size: 0.8rem; color: var(--accent-cyan);">1 สิทธิ์ = 1 คน</span>
           </div>
 
-          <!-- ORDER TYPE: PRE-SALE VS ON-SITE WALK-IN -->
-          <div class="ep-type-selector">
-            <div class="ep-type-btn active" id="btnTypeWalkin" onclick="setOrderType('WALKIN')">
-              🏢 ซื้อบัตรหน้างาน (Box Office)
-              <span class="sub-text">ชำระเงินสด/โอน รับบัตรเข้างานทันที</span>
-            </div>
-            <div class="ep-type-btn" id="btnTypePresale" onclick="setOrderType('PRESALE')">
-              📱 ซื้อบัตรล่วงหน้า (Pre-Sale)
-              <span class="sub-text">โอนชำระเงิน รับ e-Ticket ล่วงหน้า</span>
-            </div>
+          <!-- ORDER TYPE: ON-SITE WALK-IN ONLY (BOX OFFICE) -->
+          <div style="display: none;">
+            <div id="btnTypeWalkin" class="active"></div>
+            <div id="btnTypePresale"></div>
           </div>
 
           <!-- TICKET TIERS LIST -->
@@ -159,7 +189,9 @@
                 <!-- QR rendered dynamically -->
               </div>
               <div class="ep-qr-amount-tag" id="promptPayAmountTag">฿0.00</div>
-              <p style="font-size: 0.72rem; color: #555; margin-top: 6px;">บัญชี: บจก. อีเวนต์เพย์ คอนเสิร์ตสยาม</p>
+              <div id="indexPromptPayAccInfo" style="font-size: 0.75rem; color: #555; margin-top: 6px; line-height: 1.4;">
+                บัญชี: คอนเสิร์ต EventPay 2026 | พร้อมเพย์: 081-234-5678
+              </div>
             </div>
 
             <div class="ep-form-group">
@@ -400,6 +432,39 @@
   <script src="js/hardwareBridge.js"></script>
   <script src="js/db.js"></script>
   <script src="js/firebaseAdapter.js"></script>
+  <script src="js/authGuard.js"></script>
   <script src="js/ticketing.js"></script>
+  <script>
+    function initDropdowns() {
+      document.addEventListener('click', (e) => {
+        const isDropdownBtn = e.target.closest('.ep-dropdown-btn') || e.target.closest('.ep-dropdown-toggle');
+        const isInsideDropdown = e.target.closest('.ep-dropdown');
+
+        if (!isInsideDropdown) {
+          document.querySelectorAll('.ep-dropdown.show').forEach(d => d.classList.remove('show'));
+        } else if (isDropdownBtn) {
+          const parentDropdown = isDropdownBtn.closest('.ep-dropdown');
+          const wasOpen = parentDropdown.classList.contains('show');
+          document.querySelectorAll('.ep-dropdown.show').forEach(d => d.classList.remove('show'));
+          if (!wasOpen) {
+            parentDropdown.classList.add('show');
+          }
+        }
+      });
+
+      document.querySelectorAll('.ep-dropdown-item').forEach(item => {
+        item.addEventListener('click', () => {
+          document.querySelectorAll('.ep-dropdown.show').forEach(d => d.classList.remove('show'));
+        });
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      initDropdowns();
+      if (typeof EventPayAuth !== 'undefined') {
+        EventPayAuth.protectPage('index');
+      }
+    });
+  </script>
 </body>
 </html>
