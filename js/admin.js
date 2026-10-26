@@ -18,10 +18,13 @@
   });
 
   function initAdmin() {
+    syncTicketTiersFromMaster();
+    syncBankAccountsFromMaster();
     renderDashboardData();
     renderIncidentsTable();
     renderFinanceLedger();
     renderAuditLogsTable();
+    checkAdminClearTransactionsVisibility();
     updatePendingSlipsBadge();
     updateAdminNetBadge();
     loadFirebaseConfigInAdmin();
@@ -37,11 +40,22 @@
       });
     }
 
+    // คลิกพื้นที่สีดำด้านนอกเพื่อปิดโมดอลตรวจสอบตั๋ว QR (Backdrop Click to Close)
+    const orderTicketsModal = document.getElementById('modalOrderTicketsInspect');
+    if (orderTicketsModal) {
+      orderTicketsModal.addEventListener('click', (e) => {
+        if (e.target === orderTicketsModal) {
+          closeOrderTicketsModal();
+        }
+      });
+    }
+
     // ฟัง Real-time Broadcast จากเครื่องแม่ข่าย (ทันทีโดยไม่ต้องรอ 3 วินาที)
     if (EventPayDB && typeof EventPayDB.onSyncEvent === 'function') {
       EventPayDB.onSyncEvent((data) => {
         updatePendingSlipsBadge();
         if (currentTab === 'dashboard') renderDashboardData();
+        else if (currentTab === 'salesReport') renderSalesReport();
         else if (currentTab === 'incidents') renderIncidentsTable();
         else if (currentTab === 'finance') renderFinanceLedger();
         else if (currentTab === 'audit') renderAuditLogsTable();
@@ -54,6 +68,8 @@
       updatePendingSlipsBadge();
       if (currentTab === 'dashboard') {
         renderDashboardData();
+      } else if (currentTab === 'salesReport') {
+        renderSalesReport();
       }
     }, 3000);
   }
@@ -85,7 +101,7 @@
   window.switchAdminTab = function (tabName) {
     currentTab = tabName;
 
-    const tabs = ['dashboard', 'incidents', 'finance', 'audit', 'database', 'users', 'bankSettings'];
+    const tabs = ['dashboard', 'salesReport', 'incidents', 'finance', 'audit', 'database', 'users', 'bankSettings'];
     tabs.forEach(t => {
       const btn = document.getElementById(`tabBtn${capitalize(t)}`);
       const view = document.getElementById(`adminView${capitalize(t)}`);
@@ -94,9 +110,11 @@
     });
 
     if (tabName === 'dashboard') renderDashboardData();
+    else if (tabName === 'salesReport') renderSalesReport();
     else if (tabName === 'incidents') renderIncidentsTable();
     else if (tabName === 'finance') renderFinanceLedger();
     else if (tabName === 'audit') renderAuditLogsTable();
+    else if (tabName === 'database') checkAdminClearTransactionsVisibility();
     else if (tabName === 'users') renderUsersTable();
     else if (tabName === 'bankSettings') renderBankSettings();
   };
@@ -124,7 +142,11 @@
     const elIncidents = document.getElementById('kpiTotalIncidents');
 
     if (elInside) elInside.textContent = summary.attendeesInside.toLocaleString();
-    if (elOutside) elOutside.textContent = summary.attendeesRemaining.toLocaleString();
+    if (elOutside) {
+      elOutside.textContent = (summary.attendeesExited || 0).toLocaleString();
+      const sub = elOutside.parentElement ? elOutside.parentElement.querySelector('.ep-kpi-sub') : null;
+      if (sub) sub.textContent = `ออกชั่วคราว ${summary.attendeesExited || 0} คน (รอเข้า ${summary.attendeesRemaining || 0} คน)`;
+    }
 
     const pct = summary.totalTicketsSold > 0 ? Math.round((summary.attendeesInside / summary.totalTicketsSold) * 100) : 0;
     if (elInsidePct) elInsidePct.textContent = `${pct}% ของบัตรที่ออกแล้ว`;
@@ -350,12 +372,20 @@
       const payment = allPayments.find(p => p.order_id === o.order_id);
       const slipSrc = (payment && payment.slip_url) ? payment.slip_url : (o.slip_url || '');
 
+      // คำนวณจำนวนตั๋วของคำสั่งซื้อนี้เพื่อแสดงบนปุ่ม
+      const orderTickets = (typeof EventPayDB !== 'undefined' && EventPayDB.getAll)
+        ? EventPayDB.getAll('tickets', t => t.order_id === o.order_id)
+        : [];
+      const ticketCount = orderTickets.length > 0
+        ? orderTickets.length
+        : (Array.isArray(o.items) ? o.items.reduce((s, it) => s + (it.quantity || 1), 0) : 1);
+
       let statusHtml = '';
       let actionHtml = '';
 
       if (o.payment_method === 'TRANSFER') {
         if (o.payment_status === 'PENDING_VERIFICATION') {
-          statusHtml = '<span class="ep-badge ep-badge-warning" style="animation: pulse 1.5s infinite; font-weight: 700;">🟡 รอตรวจสเตทเมนต์</span>';
+          statusHtml = '<span class="ep-badge ep-badge-warning ep-blink-urgent-gold">🟡 รอตรวจสเตทเมนต์</span>';
           actionHtml = `
             <div style="display: flex; gap: 4px; flex-wrap: wrap;">
               ${slipSrc ? `<button type="button" class="ep-nav-btn" style="font-size: 0.72rem; padding: 4px 8px; background: #0284c7; color: #fff;" onclick="openSlipInspection('${o.order_id}', '${payment ? payment.payment_id : ''}')">🖼️ ดูสลิปจริง</button>` : ''}
@@ -365,25 +395,46 @@
           `;
         } else if (o.payment_status === 'PAID') {
           statusHtml = '<span class="ep-badge ep-badge-pass">🟢 ชำระแล้ว (อนุมัติแล้ว)</span>';
-          actionHtml = slipSrc ? `
-            <button type="button" class="ep-nav-btn" style="font-size: 0.72rem; padding: 3px 8px;" onclick="openSlipInspection('${o.order_id}', '${payment ? payment.payment_id : ''}')">
-              🖼️ ดูสลิป
-            </button>
-          ` : '<span style="color: var(--text-dim); font-size: 0.8rem;">เรียบร้อย</span>';
+          actionHtml = `
+            <div style="display: flex; gap: 4px; flex-wrap: wrap; align-items: center;">
+              <button type="button" class="ep-nav-btn" style="font-size: 0.72rem; padding: 4px 8px; background: #0284c7; color: #fff; font-weight: 700; border-color: #38bdf8;" onclick="openOrderTicketsModal('${o.order_id}')">
+                🎟️ ดูตั๋ว QR (${ticketCount} ใบ)
+              </button>
+              ${slipSrc ? `
+                <button type="button" class="ep-nav-btn" style="font-size: 0.72rem; padding: 4px 8px;" onclick="openSlipInspection('${o.order_id}', '${payment ? payment.payment_id : ''}')">
+                  🖼️ ดูสลิป
+                </button>
+              ` : ''}
+            </div>
+          `;
         } else if (o.payment_status === 'VOID') {
           statusHtml = '<span class="ep-badge ep-badge-danger">🔴 โมฆะ / สลิปปลอม</span>';
-          actionHtml = slipSrc ? `
-            <button type="button" class="ep-nav-btn" style="font-size: 0.72rem; padding: 3px 8px; background: rgba(239, 68, 68, 0.2); border-color: #ef4444; color: #fca5a5;" onclick="openSlipInspection('${o.order_id}', '${payment ? payment.payment_id : ''}')">
-              🖼️ ดูสลิป
-            </button>
-          ` : '<span style="color: #ef4444; font-size: 0.8rem;">ระงับแล้ว</span>';
+          actionHtml = `
+            <div style="display: flex; gap: 4px; flex-wrap: wrap; align-items: center;">
+              <button type="button" class="ep-nav-btn" style="font-size: 0.72rem; padding: 4px 8px; background: rgba(239, 68, 68, 0.2); border-color: #ef4444; color: #fca5a5;" onclick="openOrderTicketsModal('${o.order_id}')">
+                🎟️ ดูตั๋ว (${ticketCount} ใบ)
+              </button>
+              ${slipSrc ? `
+                <button type="button" class="ep-nav-btn" style="font-size: 0.72rem; padding: 4px 8px; background: rgba(239, 68, 68, 0.2); border-color: #ef4444; color: #fca5a5;" onclick="openSlipInspection('${o.order_id}', '${payment ? payment.payment_id : ''}')">
+                  🖼️ ดูสลิป
+                </button>
+              ` : ''}
+            </div>
+          `;
         } else {
           statusHtml = `<span class="ep-badge">${o.payment_status}</span>`;
           actionHtml = '-';
         }
       } else {
         statusHtml = '<span class="ep-badge ep-badge-pass">ชำระเงินสดแล้ว</span>';
-        actionHtml = '<span style="color: var(--text-dim); font-size: 0.8rem;">เงินสดหน้าเคาน์เตอร์</span>';
+        actionHtml = `
+          <div style="display: flex; gap: 4px; flex-wrap: wrap; align-items: center;">
+            <button type="button" class="ep-nav-btn" style="font-size: 0.72rem; padding: 4px 8px; background: #0284c7; color: #fff; font-weight: 700; border-color: #38bdf8;" onclick="openOrderTicketsModal('${o.order_id}')">
+              🎟️ ดูตั๋ว QR (${ticketCount} ใบ)
+            </button>
+            <span style="color: var(--text-dim); font-size: 0.75rem;">เงินสด</span>
+          </div>
+        `;
       }
 
       tr.innerHTML = `
@@ -411,11 +462,10 @@
     if (pendingOrders.length > 0) {
       badge.style.display = 'inline-block';
       badge.textContent = `🔴 รอตรวจ ${pendingOrders.length} รายการ`;
-      badge.style.background = '#ef4444';
-      badge.style.color = '#ffffff';
-      badge.style.fontWeight = '800';
+      badge.className = 'ep-blink-urgent-red';
     } else {
       badge.style.display = 'none';
+      badge.className = '';
     }
   };
 
@@ -905,6 +955,7 @@
         });
         alert(`✅ เพิ่มโซนบัตรใหม่ [${name}] (฿${price.toLocaleString()}) สำเร็จเรียบร้อยแล้วค่ะ!`);
       }
+      syncTicketTiersToMasterDisk();
       closeTicketTierModal();
       renderFinanceLedger();
     } catch (err) {
@@ -918,12 +969,50 @@
     if (!confirm(`คุณต้องการลบโซนบัตร "${tierName}" ใช่หรือไม่?`)) return;
     try {
       EventPayDB.delete('ticket_tiers', tierId);
+      syncTicketTiersToMasterDisk();
       alert(`✅ ลบโซนบัตร "${tierName}" เรียบร้อยแล้วค่ะ`);
       renderFinanceLedger();
     } catch (err) {
       alert('❌ เกิดข้อผิดพลาด: ' + err.message);
     }
   };
+
+  function syncTicketTiersToMasterDisk() {
+    try {
+      if (typeof fetch !== 'undefined') {
+        const allTiers = EventPayDB.getAll('ticket_tiers');
+        const syncUrl = (typeof EventPayDB !== 'undefined' && typeof EventPayDB.getApiUrl === 'function')
+          ? EventPayDB.getApiUrl('/api/db/ticket_tiers/sync')
+          : ((typeof window !== 'undefined' && window.location.protocol === 'file:') ? 'http://localhost:8080/api/db/ticket_tiers/sync' : '/api/db/ticket_tiers/sync');
+        fetch(syncUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(allTiers)
+        }).catch(e => console.warn('[TierSync] Local disk sync fallback:', e));
+      }
+    } catch (err) {}
+  }
+
+  function syncTicketTiersFromMaster() {
+    try {
+      if (typeof fetch !== 'undefined') {
+        const fetchUrl = (typeof EventPayDB !== 'undefined' && typeof EventPayDB.getApiUrl === 'function')
+          ? EventPayDB.getApiUrl('/api/db/ticket_tiers')
+          : ((typeof window !== 'undefined' && window.location.protocol === 'file:') ? 'http://localhost:8080/api/db/ticket_tiers' : '/api/db/ticket_tiers');
+        fetch(fetchUrl)
+          .then(r => r.json())
+          .then(serverTiers => {
+            if (Array.isArray(serverTiers) && serverTiers.length > 0) {
+              if (typeof EventPayDB !== 'undefined') {
+                EventPayDB._saveCollection('ticket_tiers', serverTiers);
+                renderFinanceLedger();
+              }
+            }
+          })
+          .catch(e => console.warn('[TierSync] Admin load tiers fallback:', e));
+      }
+    } catch (err) {}
+  }
 
   // ==========================================================================
   // 4.8 ตรวจสอบและยกเลิกรายการจ่ายเงิน (Void Expense A8)
@@ -1089,7 +1178,7 @@
           <div><strong>ชื่อลูกค้า:</strong> ${escapeHtml(custName)} (โทร: ${escapeHtml(custPhone)})</div>
           <div><strong>ยอดเงินที่ต้องเข้าสเตทเมนต์:</strong> <strong style="color: var(--accent-gold); font-size: 1.15rem;">฿${amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong></div>
           <div><strong>เลขอ้างอิงสลิป:</strong> <span style="font-family: monospace; color: var(--accent-cyan); font-weight: 700;">${escapeHtml(bankRef)}</span></div>
-          <div><strong>สถานะปัจจุบัน:</strong> <span class="ep-badge ${isPending ? 'ep-badge-warning' : (order && order.payment_status === 'PAID' ? 'ep-badge-pass' : 'ep-badge-danger')}">${order ? order.payment_status : '-'}</span></div>
+          <div><strong>สถานะปัจจุบัน:</strong> <span class="ep-badge ${isPending ? 'ep-badge-warning ep-blink-urgent-gold' : (order && order.payment_status === 'PAID' ? 'ep-badge-pass' : 'ep-badge-danger')}">${isPending ? '🟡 รอตรวจสเตทเมนต์' : (order ? order.payment_status : '-')}</span></div>
         </div>
 
         ${isPending ? `
@@ -1165,6 +1254,218 @@
     renderOrdersTable();
     renderFinanceLedger();
     updatePendingSlipsBadge();
+  };
+
+  // ==========================================================================
+  // 7.1 ตรวจสอบบัตรคอนเสิร์ต e-Ticket QR Code ของคำสั่งซื้อ (Order Tickets Inspection)
+  // ==========================================================================
+  window.openOrderTicketsModal = function (orderId) {
+    if (typeof EventPayDB === 'undefined') return;
+    const order = EventPayDB.get('orders', orderId);
+    if (!order) {
+      alert('ไม่พบข้อมูลคำสั่งซื้อ ' + orderId);
+      return;
+    }
+
+    const modal = document.getElementById('modalOrderTicketsInspect');
+    const headerEl = document.getElementById('orderTicketsModalHeader');
+    const listEl = document.getElementById('orderTicketsModalList');
+    const titleEl = document.getElementById('orderTicketsModalTitle');
+    const footerNoteEl = document.getElementById('orderTicketsModalFooterNote');
+
+    if (!modal || !listEl) return;
+
+    // ค้นหาตั๋วทั้งหมดของคำสั่งซื้อนี้
+    let tickets = EventPayDB.getAll('tickets', t => t.order_id === orderId);
+
+    // Fallback: หากยังไม่มีตั๋วบันทึกไว้ใน DB (เช่น ออเดอร์ทดสอบเดิม) ให้จำลองสร้างตั๋วตามรายการซื้อ
+    if (tickets.length === 0 && Array.isArray(order.items) && order.items.length > 0) {
+      tickets = [];
+      let itemTicketIdx = 1;
+      order.items.forEach(item => {
+        const qty = item.quantity || 1;
+        for (let q = 0; q < qty; q++) {
+          const fakeTkt = {
+            ticket_id: `TKT-${order.order_id.replace(/^ORD-/, '')}-${itemTicketIdx}`,
+            order_id: order.order_id,
+            tier_id: item.tier_id || 'TIER-GEN',
+            tier_name: item.tier_name || 'บัตรคอนเสิร์ต',
+            attendee_name: (order.attendee_names && order.attendee_names[itemTicketIdx - 1]) || order.customer_name || 'ผู้ถือบัตร',
+            qr_code_hash: `EP-TKT-${order.order_id}-${itemTicketIdx}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+            is_used: false,
+            is_void: order.payment_status === 'VOID',
+            wristband_id: null,
+            created_at: order.created_at || new Date().toISOString()
+          };
+          EventPayDB.insert('tickets', fakeTkt);
+          tickets.push(fakeTkt);
+          itemTicketIdx++;
+        }
+      });
+    }
+
+    if (titleEl) {
+      titleEl.innerHTML = `<span>🎟️ ตรวจสอบบัตรคอนเสิร์ต e-Ticket QR Code (${tickets.length} ใบ)</span>`;
+    }
+
+    if (headerEl) {
+      const pmBadge = order.payment_method === 'CASH'
+        ? '<span class="ep-badge ep-badge-warning">💵 เงินสด</span>'
+        : '<span class="ep-badge ep-badge-info">📱 เงินโอน</span>';
+      const psBadge = order.payment_status === 'PAID'
+        ? '<span class="ep-badge ep-badge-pass">🟢 ชำระแล้ว</span>'
+        : (order.payment_status === 'VOID' ? '<span class="ep-badge ep-badge-danger">🔴 โมฆะ</span>' : `<span class="ep-badge">${order.payment_status}</span>`);
+
+      headerEl.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 8px;">
+          <div>
+            <div style="font-size: 0.82rem; color: var(--text-muted);">คำสั่งซื้อ (Order ID):</div>
+            <div style="font-family: monospace; font-size: 1.1rem; font-weight: 700; color: var(--accent-gold);">${escapeHtml(order.order_id)}</div>
+            <div style="font-size: 0.88rem; color: #fff; margin-top: 4px;">
+              ผู้ซื้อ: <strong>${escapeHtml(order.customer_name)}</strong>
+              ${order.customer_phone ? `<span style="color: var(--text-muted); font-size: 0.8rem;"> (โทร: ${escapeHtml(order.customer_phone)})</span>` : ''}
+            </div>
+            <div style="font-size: 0.78rem; color: var(--text-dim); margin-top: 2px;">
+              เวลาสั่งซื้อ: ${new Date(order.created_at || Date.now()).toLocaleString('th-TH')}
+            </div>
+          </div>
+          <div style="text-align: right;">
+            <div style="font-size: 0.82rem; color: var(--text-muted);">ยอดชำระ:</div>
+            <div style="font-size: 1.25rem; font-weight: 800; color: #34d399;">฿${Number(order.total_amount).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</div>
+            <div style="margin-top: 4px; display: flex; gap: 4px; justify-content: flex-end; align-items: center;">
+              ${pmBadge}
+              ${psBadge}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    if (footerNoteEl) {
+      footerNoteEl.innerHTML = `🛡️ รวมบัตรทั้งหมด <strong>${tickets.length}</strong> ใบ (1 คิวอาร์โค้ด / 1 ท่าน)`;
+    }
+
+    listEl.innerHTML = '';
+
+    if (tickets.length === 0) {
+      listEl.innerHTML = `
+        <div style="text-align: center; color: var(--text-muted); padding: 30px; background: #070d1a; border-radius: 8px;">
+          ยังไม่มีตั๋วที่ออกให้กับคำสั่งซื้อนี้
+        </div>
+      `;
+    } else {
+      tickets.forEach((ticket, idx) => {
+        const card = document.createElement('div');
+        card.className = 'ep-ticket-pass';
+        card.style.maxWidth = '100%';
+        card.style.margin = '0 auto';
+        card.style.boxShadow = '0 6px 20px rgba(0,0,0,0.5)';
+        card.style.border = '1px solid rgba(255,255,255,0.12)';
+        card.style.borderRadius = '12px';
+        card.style.padding = '16px';
+        card.style.background = 'linear-gradient(135deg, #0b1528 0%, #040812 100%)';
+
+        card.innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:6px; margin-bottom:8px;">
+            <span style="font-size:0.75rem; color:var(--accent-gold); font-weight:700;">OFFICIAL E-TICKET #${idx + 1} / ${tickets.length}</span>
+            <span style="font-size:0.75rem; color:${ticket.is_void ? '#ef4444' : (ticket.is_used ? '#38bdf8' : 'var(--accent-green)')}; font-weight:800;">
+              ● ${ticket.is_void ? '⚠️ ระงับสิทธิ์' : (ticket.is_used ? '✅ เข้างานแล้ว' : 'พร้อมสแกนเข้างาน')}
+            </span>
+          </div>
+          <h3 style="color: var(--accent-gold); font-size: 1.25rem; margin-bottom: 4px;">${escapeHtml(ticket.tier_name || 'บัตรคอนเสิร์ต')}</h3>
+          <p style="font-size: 0.9rem; color: #fff; margin-bottom:10px;">ผู้ถือบัตร: <strong>${escapeHtml(ticket.attendee_name || order.customer_name || '-')}</strong></p>
+          
+          <!-- SINGLE-USE TICKET BADGE -->
+          <div class="ep-single-use-badge" style="background: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; border-radius: 6px; padding: 6px 10px; margin-bottom: 12px; text-align: center;">
+            <div class="ep-single-use-badge-text" style="color: #6ee7b7; font-size: 0.82rem; font-weight: 700;">
+              <span>🛡️</span> 1 คิวอาร์โค้ด ใช้ได้ 1 ท่านเท่านั้น
+            </div>
+          </div>
+
+          <div class="ep-ticket-qr-wrap" id="admin_order_qr_${ticket.ticket_id}" style="width:180px; height:180px; margin:0 auto 10px auto; background:#fff; padding:10px; border-radius:8px; display:flex; align-items:center; justify-content:center;">
+            <!-- QR rendered -->
+          </div>
+
+          <div style="font-family: monospace; font-size: 0.85rem; color: var(--accent-cyan); letter-spacing: 1px; margin-bottom:10px; word-break: break-all; text-align: center;">
+            ${escapeHtml(ticket.qr_code_hash || ticket.ticket_id)}
+          </div>
+
+          <div class="ep-ticket-meta" style="text-align:left; font-size:0.8rem; background:#070d1a; padding:10px; border-radius:6px; display:grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+            <div>รหัสบัตร: <strong style="color:#fff;">${escapeHtml(ticket.ticket_id)}</strong></div>
+            <div>คำสั่งซื้อ: <strong style="color:#fff;">${escapeHtml(ticket.order_id)}</strong></div>
+            <div>สถานะ: <strong style="color: ${ticket.is_void ? '#ef4444' : (ticket.is_used ? '#38bdf8' : 'var(--accent-green)')};">${ticket.is_void ? 'ระงับตรวจสอบ' : (ticket.is_used ? 'สแกนเข้าแล้ว' : 'สิทธิ์สมบูรณ์')}</strong></div>
+            <div>ริสต์แบนด์: <strong style="color:var(--text-muted);">${escapeHtml(ticket.wristband_id || 'รับสายรัดข้อมือหน้างาน')}</strong></div>
+          </div>
+        `;
+        listEl.appendChild(card);
+      });
+
+      // วาด QR Code ของตั๋วทุกใบ
+      setTimeout(() => {
+        tickets.forEach(ticket => {
+          const qrBox = document.getElementById(`admin_order_qr_${ticket.ticket_id}`);
+          if (qrBox && typeof QRCode !== 'undefined') {
+            qrBox.innerHTML = '';
+            new QRCode(qrBox, {
+              text: ticket.qr_code_hash || ticket.ticket_id,
+              width: 160,
+              height: 160,
+              colorDark: '#000000',
+              colorLight: '#ffffff'
+            });
+          }
+        });
+      }, 50);
+    }
+
+    modal.classList.add('show');
+  };
+
+  window.closeOrderTicketsModal = function () {
+    const modal = document.getElementById('modalOrderTicketsInspect');
+    if (modal) {
+      modal.classList.remove('show');
+    }
+  };
+
+  window.printOrderTicketsModal = function () {
+    const listEl = document.getElementById('orderTicketsModalList');
+    const headerEl = document.getElementById('orderTicketsModalHeader');
+    if (!listEl) return;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('กรุณาอนุญาตป๊อปอัปเพื่อพิมพ์บัตร');
+      return;
+    }
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>พิมพ์บัตรคอนเสิร์ต e-Ticket QR Code</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #fff; color: #000; padding: 20px; }
+          .ep-ticket-pass { border: 1px solid #ccc; border-radius: 8px; padding: 16px; margin-bottom: 20px; page-break-inside: avoid; text-align: center; }
+          .ep-single-use-badge { background: #f0fdf4; border: 1px solid #10b981; padding: 6px; margin: 8px 0; font-size: 0.85rem; font-weight: bold; }
+          .ep-ticket-qr-wrap { display: flex; justify-content: center; margin: 10px 0; }
+          .ep-ticket-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; text-align: left; font-size: 0.8rem; background: #f8fafc; padding: 8px; border-radius: 4px; border: 1px solid #e2e8f0; }
+          @media print {
+            body { padding: 0; }
+            .ep-ticket-pass { page-break-inside: avoid; }
+          }
+        </style>
+      </head>
+      <body>
+        <div style="margin-bottom: 16px; border-bottom: 2px solid #000; padding-bottom: 10px;">
+          ${headerEl ? headerEl.innerHTML : ''}
+        </div>
+        ${listEl.innerHTML}
+        <script>
+          setTimeout(() => { window.print(); }, 400);
+        </script>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
   };
 
   // ==========================================================================
@@ -1439,6 +1740,9 @@
     const accounts = EventPayDB.getAll('bank_accounts') || [];
     const activeAccount = EventPayDB.getActiveBankAccount();
 
+    // Render Payment Mode Dual-Engine Switch
+    renderPaymentModeUI();
+
     // Render Active Account Banner
     if (bannerContainer) {
       if (activeAccount) {
@@ -1545,7 +1849,7 @@
     const isActiveCheckbox = document.getElementById('bankModalIsActive');
 
     if (accountId) {
-      const acc = EventPayDB.getById('bank_accounts', accountId);
+      const acc = EventPayDB.get('bank_accounts', accountId) || EventPayDB.getById('bank_accounts', accountId);
       if (!acc) return alert('❌ ไม่พบข้อมูลบัญชี');
       titleEl.textContent = '✏️ แก้ไขบัญชีธนาคาร & พร้อมเพย์';
       idInput.value = acc.account_id;
@@ -1639,6 +1943,7 @@
         if (isActive) {
           EventPayDB.setActiveBankAccount(accountId);
         }
+        syncBankAccountsToMasterDisk();
         alert('✅ แก้ไขข้อมูลบัญชีธนาคารเรียบร้อยแล้ว');
       } else {
         // Create new
@@ -1660,6 +1965,7 @@
         if (isActive) {
           EventPayDB.setActiveBankAccount(newId);
         }
+        syncBankAccountsToMasterDisk();
         alert('✅ เพิ่มบัญชีธนาคารใหม่เรียบร้อยแล้ว');
       }
 
@@ -1674,6 +1980,7 @@
     if (!confirm('คุณต้องการเปลี่ยนบัญชีรับเงินหลักสำหรับหน้าจองตั๋วเป็นบัญชีนี้ใช่หรือไม่?')) return;
     try {
       EventPayDB.setActiveBankAccount(accountId);
+      syncBankAccountsToMasterDisk();
       alert('✅ สลับบัญชีรับเงินหลักเรียบร้อยแล้ว! หน้าจองตั๋วและหน้าขายบัตรจะอัปเดตข้อมูลบัญชีนี้ทันที');
       renderBankSettings();
     } catch (err) {
@@ -1685,10 +1992,145 @@
     if (!confirm(`คุณต้องการลบบัญชี "${bankName}" ใช่หรือไม่?`)) return;
     try {
       EventPayDB.delete('bank_accounts', accountId);
+      syncBankAccountsToMasterDisk();
       alert('✅ ลบบัญชีธนาคารเรียบร้อยแล้ว');
       renderBankSettings();
     } catch (err) {
       alert('❌ เกิดข้อผิดพลาด: ' + err.message);
+    }
+  };
+
+  function syncBankAccountsToMasterDisk() {
+    try {
+      if (typeof fetch !== 'undefined') {
+        const allAccounts = EventPayDB.getAll('bank_accounts');
+        fetch('/api/db/bank_accounts/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(allAccounts)
+        }).catch(e => console.warn('[BankSync] Local disk sync fallback:', e));
+      }
+    } catch (err) {}
+  }
+
+  function syncBankAccountsFromMaster() {
+    try {
+      if (typeof fetch !== 'undefined') {
+        fetch('/api/db/bank_accounts')
+          .then(r => r.json())
+          .then(serverAccounts => {
+            if (Array.isArray(serverAccounts) && serverAccounts.length > 0) {
+              if (typeof EventPayDB !== 'undefined') {
+                EventPayDB._saveCollection('bank_accounts', serverAccounts);
+                renderBankSettings();
+              }
+            }
+          })
+          .catch(e => console.warn('[BankSync] Admin load bank accounts fallback:', e));
+      }
+    } catch (err) {}
+  }
+
+  function renderPaymentModeUI() {
+    if (typeof EventPayDB === 'undefined') return;
+    const config = EventPayDB.getPaymentConfig();
+    const mode = config ? config.mode : 'system_c';
+
+    const radioSystemC = document.querySelector('input[name="adminPaymentModeRadio"][value="system_c"]');
+    const radioLegacy = document.querySelector('input[name="adminPaymentModeRadio"][value="legacy_slip"]');
+    const badge = document.getElementById('paymentModeBadge');
+    const cardSystemC = document.getElementById('paymentModeCardSystemC');
+    const cardLegacy = document.getElementById('paymentModeCardLegacy');
+
+    if (mode === 'system_c') {
+      if (radioSystemC) radioSystemC.checked = true;
+      if (badge) {
+        badge.className = 'ep-badge ep-badge-green';
+        badge.innerHTML = '⚡ โหมด C: ทำงานอัตโนมัติไร้สลิป 100%';
+      }
+      if (cardSystemC) {
+        cardSystemC.style.borderColor = '#06b6d4';
+        cardSystemC.style.background = 'rgba(6, 182, 212, 0.12)';
+      }
+      if (cardLegacy) {
+        cardLegacy.style.borderColor = 'rgba(255,255,255,0.15)';
+        cardLegacy.style.background = 'rgba(15, 23, 42, 0.4)';
+      }
+    } else {
+      if (radioLegacy) radioLegacy.checked = true;
+      if (badge) {
+        badge.className = 'ep-badge ep-badge-gold';
+        badge.innerHTML = '📄 โหมดเดิม: แนบสลิป & ตรวจสอบสเตทเมนต์';
+      }
+      if (cardLegacy) {
+        cardLegacy.style.borderColor = '#f59e0b';
+        cardLegacy.style.background = 'rgba(245, 158, 11, 0.12)';
+      }
+      if (cardSystemC) {
+        cardSystemC.style.borderColor = 'rgba(255,255,255,0.15)';
+        cardSystemC.style.background = 'rgba(15, 23, 42, 0.4)';
+      }
+    }
+  }
+
+  window.handlePaymentModeChange = async function (mode) {
+    if (typeof EventPayDB === 'undefined') return;
+    try {
+      EventPayDB.setPaymentConfig({ mode });
+      // Sync to Server if online
+      if (typeof fetch !== 'undefined') {
+        fetch('/api/payment/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode })
+        }).catch(e => console.warn('Sync payment config to server error:', e));
+      }
+      renderPaymentModeUI();
+      const modeLabel = mode === 'system_c'
+        ? 'โหมด C (ตรวจจับเงินเข้าอัตโนมัติไร้สลิป 100%)'
+        : 'โหมดเดิม (แนบสลิปโอนเงิน & ตรวจสอบสเตทเมนต์)';
+      alert(`✅ ปรับเปลี่ยนโหมดระบบชำระเงินออนไลน์สำเร็จ!\n\nสถานะปัจจุบัน: ${modeLabel}\nหน้าจองตั๋วออนไลน์ (booking.html) จะปรับเปลี่ยนการแสดงผลทันที`);
+    } catch (err) {
+      alert('❌ เกิดข้อผิดพลาดในการเปลี่ยนโหมด: ' + err.message);
+    }
+  };
+
+  window.adminSimulatePaymentNotification = async function () {
+    if (typeof EventPayDB === 'undefined') return;
+    try {
+      const pendingOrders = EventPayDB.getAll('orders', o => o.payment_status === 'PENDING_VERIFICATION');
+
+      let targetOrder = null;
+      if (pendingOrders.length > 0) {
+        targetOrder = pendingOrders[pendingOrders.length - 1];
+      }
+
+      const promptMsg = targetOrder
+        ? `พบคำสั่งซื้อที่รอเงินเข้าล่าสุด:\nOrder: ${targetOrder.order_id}\nผู้ซื้อ: ${targetOrder.customer_name}\nยอดเงิน: ฿${targetOrder.total_amount}\n\nคุณต้องการจำลองสัญญาณเงินเข้าธนาคารสำหรับคำสั่งซื้อนี้ใช่หรือไม่?`
+        : 'ขณะนี้ไม่มีคำสั่งซื้อที่รอชำระเงินในระบบ\nคุณต้องการจำลองสัญญาณเงินเข้า ฿2,000.03 เพื่อทดสอบระบบหรือไม่?';
+
+      if (!confirm(promptMsg)) return;
+
+      const payload = targetOrder
+        ? { order_id: targetOrder.order_id, amount: targetOrder.total_amount, bank: 'KBANK' }
+        : { amount: 2000.03, bank: 'KBANK' };
+
+      const res = await fetch('/api/payment/notification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        alert(`🎉 จำลองสัญญาณเงินเข้าสำเร็จ!\n\nคำสั่งซื้อ: ${data.order ? data.order.order_id : payload.order_id || 'TEST'}\nยอดเงิน: ฿${data.order ? data.order.total_amount : payload.amount}\nสถานะ: ชำระเงินแล้ว (PAID) เรียบร้อย\n\nระบบได้ส่งสัญญาณปลดล็อกตั๋วให้ลูกค้าที่หน้า booking.html ใน 1.5 วินาทีแล้วค่ะ!`);
+        if (typeof renderDashboardData === 'function') renderDashboardData();
+        if (typeof renderSalesReportData === 'function') renderSalesReportData();
+      } else {
+        alert('⚠️ เซิร์ฟเวอร์ตอบกลับ: ' + data.message);
+      }
+    } catch (err) {
+      alert('❌ เกิดข้อผิดพลาดในการจำลองสัญญาณเงินเข้า: ' + err.message);
     }
   };
 
@@ -1720,5 +2162,494 @@
     if (!text) return '';
     return text.replace(/'/g, "\\'").replace(/"/g, '&quot;');
   }
+
+  // ==========================================================================
+  // TAB: EXECUTIVE REAL-TIME SALES & EXPENSES REPORT (P&L)
+  // ==========================================================================
+  let cachedSalesReportTickets = [];
+
+  window.renderSalesReport = function () {
+    const lastUpdateEl = document.getElementById('salesReportLastUpdate');
+    if (lastUpdateEl) {
+      const now = new Date();
+      lastUpdateEl.textContent = `⏱️ อัปเดตล่าสุด: ${now.toLocaleTimeString('th-TH')}`;
+    }
+
+    if (!EventPayDB) return;
+
+    // 1. Fetch raw data
+    const rawTickets = EventPayDB.getAll('tickets') || [];
+    const orders = EventPayDB.getAll('orders') || [];
+    const tiers = EventPayDB.getAll('ticket_tiers') || [];
+    const payouts = EventPayDB.getAll('cash_payouts') || [];
+    const pnl = (typeof EventPayDB.getProfitAndLossSummary === 'function')
+      ? EventPayDB.getProfitAndLossSummary()
+      : { ticketRevenue: 0, totalRevenue: 0, totalExpense: 0, netProfit: 0, expenseByCategory: [] };
+
+    // 2. Sort tickets chronologically from #1 (first) to #N (last)
+    const tickets = [...rawTickets].sort((a, b) => {
+      const ta = new Date(a.created_at || 0).getTime();
+      const tb = new Date(b.created_at || 0).getTime();
+      if (ta !== tb) return ta - tb;
+      return String(a.ticket_id || '').localeCompare(String(b.ticket_id || ''));
+    });
+
+    // 3. Map orders and tiers for fast lookup
+    const ordersMap = {};
+    orders.forEach(o => {
+      if (o && o.order_id) ordersMap[o.order_id] = o;
+    });
+
+    const tiersMap = {};
+    tiers.forEach(t => {
+      if (t && t.tier_id) tiersMap[t.tier_id] = t;
+    });
+
+    // 4. Calculate Tier Sales Breakdown
+    const tierStats = {};
+    tiers.forEach(t => {
+      tierStats[t.tier_id] = {
+        tier_id: t.tier_id,
+        name: t.name || t.tier_id,
+        price: Number(t.price) || 0,
+        quota: Number(t.quota) || 0,
+        sold: 0,
+        subtotal: 0
+      };
+    });
+
+    tickets.forEach(ticket => {
+      const tid = ticket.tier_id;
+      if (tierStats[tid]) {
+        tierStats[tid].sold += 1;
+      } else {
+        tierStats[tid] = {
+          tier_id: tid,
+          name: tid,
+          price: Number(ticket.price) || 0,
+          quota: 0,
+          sold: 1,
+          subtotal: 0
+        };
+      }
+    });
+
+    let grandTotalTickets = tickets.length;
+    let grandTotalSales = 0;
+    let totalQuotaAllTiers = 0;
+
+    Object.values(tierStats).forEach(ts => {
+      ts.subtotal = ts.sold * ts.price;
+      grandTotalSales += ts.subtotal;
+      totalQuotaAllTiers += ts.quota;
+    });
+
+    // Fallback: If grandTotalSales is 0 and orders exist
+    if (grandTotalSales === 0 && orders.length > 0) {
+      grandTotalSales = orders
+        .filter(o => o.payment_status === 'PAID')
+        .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+    }
+
+    // 5. Payment Method Breakdown (Cash vs Transfer)
+    let cashSales = 0;
+    let transferSales = 0;
+
+    const paidOrders = orders.filter(o => o.payment_status === 'PAID');
+    if (paidOrders.length > 0) {
+      paidOrders.forEach(o => {
+        const amt = Number(o.total_amount) || 0;
+        const pm = String(o.payment_method || '').toUpperCase();
+        if (pm === 'CASH') {
+          cashSales += amt;
+        } else {
+          transferSales += amt;
+        }
+      });
+    } else {
+      tickets.forEach(t => {
+        const o = ordersMap[t.order_id];
+        const price = (tiersMap[t.tier_id] ? Number(tiersMap[t.tier_id].price) : 0);
+        if (o && String(o.payment_method).toUpperCase() === 'CASH') {
+          cashSales += price;
+        } else {
+          transferSales += price;
+        }
+      });
+    }
+
+    // 6. Expenses Calculation
+    const totalExpenses = Number(pnl.totalExpense) || payouts.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    const totalExpenseCount = payouts.length;
+
+    // 7. Net Profit & Margin
+    const netProfit = grandTotalSales - totalExpenses;
+    const marginPct = grandTotalSales > 0 ? ((netProfit / grandTotalSales) * 100) : 0;
+    const isProfitable = netProfit >= 0;
+
+    // 8. Update KPI Ribbon Cards
+    const elKpiTickets = document.getElementById('repKpiTotalTickets');
+    const elKpiTicketsSub = document.getElementById('repKpiTicketsSub');
+    const elKpiGrossSales = document.getElementById('repKpiGrossSales');
+    const elKpiSalesBreakdown = document.getElementById('repKpiSalesBreakdown');
+    const elKpiExpenses = document.getElementById('repKpiTotalExpenses');
+    const elKpiExpensesSub = document.getElementById('repKpiExpensesSub');
+    const elKpiProfit = document.getElementById('repKpiNetProfit');
+    const elKpiProfitMargin = document.getElementById('repKpiProfitMargin');
+    const elProfitCard = document.getElementById('repKpiProfitCard');
+
+    if (elKpiTickets) elKpiTickets.textContent = grandTotalTickets.toLocaleString();
+    if (elKpiTicketsSub) {
+      const qPct = totalQuotaAllTiers > 0 ? ((grandTotalTickets / totalQuotaAllTiers) * 100).toFixed(1) : 0;
+      elKpiTicketsSub.textContent = `จำหน่ายได้ ${qPct}% ของโควตารวม (${grandTotalTickets}/${totalQuotaAllTiers} ใบ)`;
+    }
+
+    if (elKpiGrossSales) elKpiGrossSales.textContent = `฿${grandTotalSales.toLocaleString('th-TH', { minimumFractionDigits: 2 })}`;
+    if (elKpiSalesBreakdown) {
+      elKpiSalesBreakdown.innerHTML = `💵 สด: ฿${cashSales.toLocaleString('th-TH', { minimumFractionDigits: 2 })} &nbsp;|&nbsp; 📱 โอน: ฿${transferSales.toLocaleString('th-TH', { minimumFractionDigits: 2 })}`;
+    }
+
+    if (elKpiExpenses) elKpiExpenses.textContent = `฿${totalExpenses.toLocaleString('th-TH', { minimumFractionDigits: 2 })}`;
+    if (elKpiExpensesSub) elKpiExpensesSub.textContent = `รวม ${totalExpenseCount.toLocaleString()} รายการเบิกจ่ายจริง`;
+
+    if (elKpiProfit) {
+      elKpiProfit.textContent = `${isProfitable ? '+' : ''}฿${netProfit.toLocaleString('th-TH', { minimumFractionDigits: 2 })}`;
+      elKpiProfit.style.color = isProfitable ? '#34d399' : '#f87171';
+    }
+    if (elProfitCard) {
+      elProfitCard.style.borderTopColor = isProfitable ? '#34d399' : '#f87171';
+    }
+    if (elKpiProfitMargin) {
+      elKpiProfitMargin.textContent = `${isProfitable ? 'กำไรสุทธิ' : 'ขาดทุนสุทธิ'} ${marginPct.toFixed(1)}% จากยอดขายรวม`;
+      elKpiProfitMargin.style.color = isProfitable ? '#34d399' : '#f87171';
+    }
+
+    // 9. Render Tier Sales Table
+    const repTierCountBadge = document.getElementById('repTierCountBadge');
+    if (repTierCountBadge) repTierCountBadge.textContent = `${Object.keys(tierStats).length} ประเภท`;
+
+    const repTierBody = document.getElementById('repTierTableBody');
+    const repTierFoot = document.getElementById('repTierTableFoot');
+
+    if (repTierBody) {
+      repTierBody.innerHTML = '';
+      const tierList = Object.values(tierStats);
+      if (tierList.length === 0) {
+        repTierBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">ไม่พบข้อมูลประเภทบัตร</td></tr>`;
+      } else {
+        tierList.forEach((ts, idx) => {
+          const sharePct = grandTotalSales > 0 ? ((ts.subtotal / grandTotalSales) * 100).toFixed(1) : '0.0';
+          const quotaStr = ts.quota > 0 ? `${ts.sold.toLocaleString()} / ${ts.quota.toLocaleString()}` : `${ts.sold.toLocaleString()} ใบ`;
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td style="text-align: center; color: var(--text-muted); font-weight: 700;">${idx + 1}</td>
+            <td>
+              <strong style="color: #fff; font-size: 0.95rem;">${escapeHtml(ts.name)}</strong>
+              <div style="font-size: 0.75rem; color: var(--accent-gold); font-family: monospace;">${escapeHtml(ts.tier_id)}</div>
+            </td>
+            <td style="text-align: right; color: var(--accent-gold); font-weight: 700;">
+              ฿${ts.price.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+            </td>
+            <td style="text-align: center;">
+              <span class="ep-badge ep-badge-info" style="font-size: 0.82rem;">${quotaStr}</span>
+            </td>
+            <td style="text-align: center;">
+              <span style="font-weight: 600; color: #38bdf8;">${sharePct}%</span>
+            </td>
+            <td style="text-align: right; font-weight: 800; color: #fff; font-size: 0.95rem;">
+              ฿${ts.subtotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+            </td>
+          `;
+          repTierBody.appendChild(tr);
+        });
+      }
+    }
+
+    if (repTierFoot) {
+      repTierFoot.innerHTML = `
+        <tr>
+          <td colspan="3" style="color: var(--accent-gold); font-size: 0.95rem;">
+            ⭐ ยอดรวมจำหน่ายบัตรทุกประเภท (Grand Total Sales)
+          </td>
+          <td style="text-align: center; color: #fff; font-size: 0.95rem;">
+            ${grandTotalTickets.toLocaleString()} ใบ
+          </td>
+          <td style="text-align: center; color: var(--accent-gold);">100.0%</td>
+          <td style="text-align: right; color: var(--accent-gold); font-size: 1.1rem; font-weight: 800;">
+            ฿${grandTotalSales.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+          </td>
+        </tr>
+      `;
+    }
+
+    // 10. Render Expenses Breakdown Table
+    const expCats = (pnl && Array.isArray(pnl.expenseByCategory)) ? pnl.expenseByCategory : [];
+    const repExpBadge = document.getElementById('repExpCategoryCountBadge');
+    if (repExpBadge) repExpBadge.textContent = `${expCats.length} หมวดหมู่`;
+
+    const repExpBody = document.getElementById('repExpTableBody');
+    const repExpFoot = document.getElementById('repExpTableFoot');
+
+    if (repExpBody) {
+      repExpBody.innerHTML = '';
+      if (expCats.length === 0) {
+        repExpBody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: var(--text-muted); padding: 24px;">ไม่มีรายการค่าใช้จ่าย</td></tr>`;
+      } else {
+        expCats.forEach(cat => {
+          const catAmt = Number(cat.amount) || 0;
+          const sharePct = totalExpenses > 0 ? ((catAmt / totalExpenses) * 100).toFixed(1) : '0.0';
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>
+              <div style="font-weight: 700; color: #fff;">${escapeHtml(cat.name || cat.category_id)}</div>
+              <div style="font-size: 0.72rem; color: #94a3b8; font-family: monospace;">${escapeHtml(cat.category_id)}</div>
+            </td>
+            <td style="text-align: right; font-weight: 700; color: #f87171;">
+              ฿${catAmt.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+            </td>
+            <td style="text-align: center;">
+              <span class="ep-badge ${catAmt > 0 ? 'ep-badge-danger' : 'ep-badge-info'}" style="font-size: 0.78rem;">
+                ${sharePct}%
+              </span>
+            </td>
+          `;
+          repExpBody.appendChild(tr);
+        });
+      }
+    }
+
+    if (repExpFoot) {
+      repExpFoot.innerHTML = `
+        <tr>
+          <td style="color: #f87171; font-size: 0.95rem;">
+            💸 รวมค่าใช้จ่ายทั้งหมด (Total Expenses)
+          </td>
+          <td style="text-align: right; color: #f87171; font-size: 1.1rem; font-weight: 800;">
+            ฿${totalExpenses.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+          </td>
+          <td style="text-align: center; color: #f87171;">100.0%</td>
+        </tr>
+      `;
+    }
+
+    // 11. Cache all tickets with sequential numbering #1 to #N
+    cachedSalesReportTickets = tickets.map((t, idx) => {
+      const ord = ordersMap[t.order_id] || {};
+      const tierObj = tiersMap[t.tier_id] || {};
+      const price = (typeof tierObj.price !== 'undefined') ? Number(tierObj.price) : (Number(t.price) || 0);
+      const payMethod = String(ord.payment_method || t.payment_method || 'CASH').toUpperCase();
+      return {
+        seq: idx + 1,
+        ticket_id: t.ticket_id,
+        order_id: t.order_id || '-',
+        created_at: t.created_at || (ord.created_at || ''),
+        attendee_name: t.attendee_name || ord.buyer_name || 'ลูกค้าทั่วไป',
+        attendee_phone: t.attendee_phone || ord.buyer_phone || '',
+        tier_id: t.tier_id,
+        tier_name: tierObj.name || t.tier_id,
+        price: price,
+        payment_method: payMethod,
+        wristband_id: t.wristband_id || '',
+        status: t.status || 'ISSUED',
+        is_inside: !!t.is_inside || t.status === 'CHECKED_IN' || !!t.gate_id
+      };
+    });
+
+    renderSalesReportTicketsTable(cachedSalesReportTickets);
+  };
+
+  function renderSalesReportTicketsTable(list) {
+    const tbody = document.getElementById('salesReportTicketsTableBody');
+    const badge = document.getElementById('repTicketCountBadge');
+    if (badge) {
+      badge.textContent = `แสดง ${list.length.toLocaleString()} จาก ${cachedSalesReportTickets.length.toLocaleString()} ใบ`;
+    }
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    if (list.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="10" style="text-align: center; color: var(--text-muted); padding: 30px;">
+            ไม่พบข้อมูลบัตรคอนเสิร์ต
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    list.forEach(item => {
+      const tr = document.createElement('tr');
+      const timeStr = item.created_at ? new Date(item.created_at).toLocaleString('th-TH') : '-';
+      
+      let statusBadge = '<span class="ep-badge ep-badge-info">🎟️ ออกบัตรแล้ว</span>';
+      if (item.is_inside) {
+        statusBadge = '<span class="ep-badge ep-badge-success">🚪 เข้างานแล้ว</span>';
+      } else if (item.wristband_id) {
+        statusBadge = '<span class="ep-badge ep-badge-warning">🎗️ ผูกริสต์แบนด์</span>';
+      }
+
+      const pmBadge = (item.payment_method === 'CASH')
+        ? '<span class="ep-badge ep-badge-success">💵 เงินสด</span>'
+        : '<span class="ep-badge ep-badge-primary">📱 โอน/QR</span>';
+
+      tr.innerHTML = `
+        <td style="text-align: center; font-weight: 800; color: var(--accent-gold); font-size: 0.9rem;">
+          #${item.seq}
+        </td>
+        <td style="font-size: 0.8rem; color: #cbd5e1; white-space: nowrap;">
+          ${timeStr}
+        </td>
+        <td>
+          <span class="ep-badge ep-badge-info" style="font-family: monospace; font-size: 0.78rem;">
+            ${escapeHtml(item.ticket_id)}
+          </span>
+        </td>
+        <td style="font-family: monospace; font-size: 0.8rem; color: #94a3b8;">
+          ${escapeHtml(item.order_id)}
+        </td>
+        <td>
+          <div style="font-weight: 700; color: #fff;">${escapeHtml(item.attendee_name)}</div>
+          ${item.attendee_phone ? `<div style="font-size: 0.75rem; color: #94a3b8;">📞 ${escapeHtml(item.attendee_phone)}</div>` : ''}
+        </td>
+        <td>
+          <strong style="color: #f59e0b; font-size: 0.88rem;">${escapeHtml(item.tier_name)}</strong>
+        </td>
+        <td style="text-align: right; font-weight: 700; color: var(--accent-gold);">
+          ฿${item.price.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+        </td>
+        <td style="text-align: center;">
+          ${pmBadge}
+        </td>
+        <td style="font-family: monospace; font-size: 0.82rem;">
+          ${item.wristband_id ? `<span class="ep-badge ep-badge-success">${escapeHtml(item.wristband_id)}</span>` : '<span style="color:var(--text-muted);">-</span>'}
+        </td>
+        <td style="text-align: center;">
+          ${statusBadge}
+        </td>
+      `;
+      fragment.appendChild(tr);
+    });
+    tbody.appendChild(fragment);
+  }
+
+  window.filterSalesReportTickets = function () {
+    const input = document.getElementById('salesReportSearchInput');
+    const q = (input ? input.value : '').toLowerCase().trim();
+    if (!q) {
+      renderSalesReportTicketsTable(cachedSalesReportTickets);
+      return;
+    }
+    const filtered = cachedSalesReportTickets.filter(item => {
+      return (
+        String(item.seq).includes(q) ||
+        String(item.ticket_id).toLowerCase().includes(q) ||
+        String(item.order_id).toLowerCase().includes(q) ||
+        String(item.attendee_name).toLowerCase().includes(q) ||
+        String(item.attendee_phone).toLowerCase().includes(q) ||
+        String(item.tier_name).toLowerCase().includes(q) ||
+        String(item.wristband_id).toLowerCase().includes(q)
+      );
+    });
+    renderSalesReportTicketsTable(filtered);
+  };
+
+  window.printSalesReport = function () {
+    document.body.classList.add('printing-sales-report');
+    window.print();
+    setTimeout(() => {
+      document.body.classList.remove('printing-sales-report');
+    }, 1000);
+  };
+
+  // ==========================================================================
+  // CLEAR TRANSACTIONS DATA (ADMIN STRICT CONFIRMATION)
+  // ==========================================================================
+  window.checkAdminClearTransactionsVisibility = function () {
+    const card = document.getElementById('adminClearTransactionsCard');
+    if (!card) return;
+    try {
+      const user = (typeof EventPayAuth !== 'undefined' && EventPayAuth.getCurrentUser) ? EventPayAuth.getCurrentUser() : null;
+      const isAdmin = user && (user.role === 'admin' || user.username === 'admin');
+      card.style.display = isAdmin ? 'block' : 'none';
+    } catch (e) {
+      card.style.display = 'none';
+    }
+  };
+
+  window.openClearTransactionsModal = function () {
+    const user = (typeof EventPayAuth !== 'undefined' && EventPayAuth.getCurrentUser) ? EventPayAuth.getCurrentUser() : null;
+    if (!user || (user.role !== 'admin' && user.username !== 'admin')) {
+      alert('⛔ เฉพาะผู้ดูแลระบบสูงสุด (Admin) เท่านั้นที่สามารถล้างข้อมูลธุรกรรมได้');
+      return;
+    }
+    const pinInput = document.getElementById('clearTxMasterPinInput');
+    const confirmInput = document.getElementById('clearTxConfirmTextInput');
+    if (pinInput) pinInput.value = '';
+    if (confirmInput) confirmInput.value = '';
+
+    const modal = document.getElementById('modalClearTransactionsConfirm');
+    if (modal) {
+      modal.classList.add('show');
+      modal.style.display = 'flex';
+      setTimeout(() => {
+        if (pinInput) pinInput.focus();
+      }, 100);
+    }
+  };
+
+  window.closeClearTransactionsModal = function () {
+    const modal = document.getElementById('modalClearTransactionsConfirm');
+    if (modal) {
+      modal.classList.remove('show');
+      modal.style.display = 'none';
+    }
+  };
+
+  window.confirmClearTransactions = function () {
+    const user = (typeof EventPayAuth !== 'undefined' && EventPayAuth.getCurrentUser) ? EventPayAuth.getCurrentUser() : null;
+    if (!user || (user.role !== 'admin' && user.username !== 'admin')) {
+      alert('⛔ เฉพาะผู้ดูแลระบบสูงสุด (Admin) เท่านั้นที่สามารถล้างข้อมูลธุรกรรมได้');
+      return;
+    }
+
+    const pinInput = document.getElementById('clearTxMasterPinInput');
+    const confirmInput = document.getElementById('clearTxConfirmTextInput');
+    const pin = (pinInput ? pinInput.value : '').trim();
+    const text = (confirmInput ? confirmInput.value : '').trim().toUpperCase();
+
+    if (pin !== '9999') {
+      alert('❌ รหัส Master PIN ไม่ถูกต้อง! กรุณากรอก 9999 เพื่อยืนยันความปลอดภัย');
+      if (pinInput) pinInput.focus();
+      return;
+    }
+
+    if (text !== 'CLEAR') {
+      alert('❌ กรุณาพิมพ์คำว่า CLEAR ให้ถูกต้องเพื่อยืนยัน');
+      if (confirmInput) confirmInput.focus();
+      return;
+    }
+
+    if (!confirm('🚨 ยืนยันครั้งสุดท้าย!\nคุณแน่ใจหรือไม่ว่าต้องการล้างยอดข้อมูลธุรกรรมทั้งหมด?\n(ข้อมูลยอดขาย ตั๋ว และค่าใช้จ่ายจะถูกรีเซ็ตเป็น 0)')) {
+      return;
+    }
+
+    try {
+      const result = EventPayDB.clearTransactionsData(user.username || 'admin');
+      closeClearTransactionsModal();
+      alert(`✅ ล้างข้อมูลธุรกรรมสำเร็จเรียบร้อยแล้ว!\n- ล้างข้อมูลแล้ว ${result.clearedCount} รายการ\n- รีเซ็ตยอดจำหน่ายในผังประเภทตั๋ว (Ticket Tiers) เป็น 0\n- ข้อมูลระบบหลัก (Admin/Staff, บัญชีธนาคาร, ประตู Kiosk) ยังคงอยู่ครบ 100%`);
+
+      // Refresh all admin views immediately
+      if (typeof renderDashboardData === 'function') renderDashboardData();
+      if (typeof renderSalesReport === 'function') renderSalesReport();
+      if (typeof renderFinanceLedger === 'function') renderFinanceLedger();
+      if (typeof renderAuditLogsTable === 'function') renderAuditLogsTable();
+      if (typeof renderIncidentsTable === 'function') renderIncidentsTable();
+      if (typeof updatePendingSlipsBadge === 'function') updatePendingSlipsBadge();
+    } catch (err) {
+      alert('❌ เกิดข้อผิดพลาดในการล้างข้อมูล: ' + err.message);
+    }
+  };
 
 })();

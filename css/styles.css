@@ -848,6 +848,134 @@ body {
     color: #000 !important;
     background: #fff !important;
   }
+  .ep-ticket-pass:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+}
+
+/* ==========================================================================
+   THERMAL POS & BOOKING 80MM UNIFIED PRINT MODE (RECEIPT & TICKETS AUTO-CUT)
+   ========================================================================== */
+@media print {
+  @page {
+    size: 80mm auto;
+    margin: 0mm !important;
+  }
+  body.printing-pos-thermal,
+  body.printing-booking-thermal {
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 80mm !important;
+  }
+  body.printing-pos-thermal .ep-header,
+  body.printing-pos-thermal .ep-status-bar,
+  body.printing-pos-thermal .ep-main,
+  body.printing-pos-thermal .ep-nav-links,
+  body.printing-pos-thermal .ep-modal-backdrop,
+  body.printing-pos-thermal .ep-modal,
+  body.printing-pos-thermal .ep-modal-footer,
+  body.printing-pos-thermal .ep-modal-close,
+  body.printing-booking-thermal .ep-header,
+  body.printing-booking-thermal .ep-status-bar,
+  body.printing-booking-thermal .ep-main,
+  body.printing-booking-thermal .ep-nav-links,
+  body.printing-booking-thermal .ep-booking-footer,
+  body.printing-booking-thermal .ep-booking-container,
+  body.printing-booking-thermal #modalTicketLookup,
+  body.printing-booking-thermal .ep-modal-backdrop,
+  body.printing-booking-thermal .ep-modal,
+  body.printing-booking-thermal .ep-modal-footer,
+  body.printing-booking-thermal .ep-modal-close,
+  body.printing-booking-thermal .no-print {
+    display: none !important;
+  }
+  body.printing-pos-thermal #posThermalPrintContainer,
+  body.printing-booking-thermal #bookingThermalPrintContainer {
+    display: block !important;
+    width: 72mm !important;
+    max-width: 76mm !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+  }
+  .ep-thermal-cut-page {
+    width: 72mm !important;
+    max-width: 76mm !important;
+    margin: 0 auto !important;
+    padding: 2mm 1mm 6mm 1mm !important;
+    box-sizing: border-box !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-family: 'Tahoma', 'Segoe UI', 'Courier New', monospace !important;
+  }
+  .ep-thermal-cut-page:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+  .ep-thermal-cut-page table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    color: #000000 !important;
+  }
+  .ep-thermal-cut-page img {
+    image-rendering: pixelated !important;
+  }
+}
+
+/* ==========================================================================
+   EXECUTIVE SALES REPORT PRINT MODE (A4 PRINT OPTIMIZED)
+   ========================================================================== */
+@media print {
+  body.printing-sales-report {
+    background: #ffffff !important;
+    color: #111827 !important;
+  }
+  body.printing-sales-report .ep-main {
+    display: block !important;
+    padding: 0 !important;
+    max-width: 100% !important;
+  }
+  body.printing-sales-report #adminViewSalesReport {
+    display: block !important;
+    color: #111827 !important;
+    background: #ffffff !important;
+  }
+  body.printing-sales-report #adminViewSalesReport .ep-card {
+    background: #ffffff !important;
+    color: #111827 !important;
+    border: 1px solid #d1d5db !important;
+    box-shadow: none !important;
+    margin-bottom: 16px !important;
+    page-break-inside: avoid;
+  }
+  body.printing-sales-report #adminViewSalesReport .ep-kpi-card {
+    background: #f8fafc !important;
+    color: #111827 !important;
+    border: 1px solid #cbd5e1 !important;
+  }
+  body.printing-sales-report #adminViewSalesReport .ep-table {
+    color: #111827 !important;
+  }
+  body.printing-sales-report #adminViewSalesReport .ep-table th,
+  body.printing-sales-report #adminViewSalesReport .ep-table td {
+    color: #111827 !important;
+    border-bottom: 1px solid #e2e8f0 !important;
+  }
+  body.printing-sales-report #adminViewSalesReport .ep-table-container {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  body.printing-sales-report .ep-admin-tab-nav,
+  body.printing-sales-report .ep-header,
+  body.printing-sales-report .ep-status-bar,
+  body.printing-sales-report #salesReportSearchInput,
+  body.printing-sales-report button {
+    display: none !important;
+  }
 }
 
 /* ==========================================================================
@@ -1416,3 +1544,63 @@ body {
   align-items: center;
   gap: 6px;
 }
+
+/* ==========================================================================
+   URGENT BLINKING ALERTS (Thep-Apai Real-World Operational Standard)
+   แจ้งเตือนกระพริบวิบวับตลอดเวลา: ป้ายรอตรวจสเตทเม้นท์ & แท็บบัญชีแยกประเภท
+   ========================================================================== */
+@keyframes epBlinkUrgentGold {
+  0%, 100% {
+    background-color: #d97706;
+    color: #ffffff;
+    border-color: #f59e0b;
+    box-shadow: 0 0 5px rgba(245, 158, 11, 0.4);
+    transform: scale(1);
+  }
+  50% {
+    background-color: #b45309;
+    color: #fef3c7;
+    border-color: #fbbf24;
+    box-shadow: 0 0 16px rgba(251, 191, 36, 0.95), 0 0 4px #ffffff;
+    transform: scale(1.04);
+  }
+}
+
+@keyframes epBlinkUrgentRed {
+  0%, 100% {
+    background-color: #dc2626;
+    color: #ffffff;
+    box-shadow: 0 0 5px rgba(220, 38, 38, 0.5);
+    transform: scale(1);
+  }
+  50% {
+    background-color: #991b1b;
+    color: #fee2e2;
+    box-shadow: 0 0 16px rgba(239, 68, 68, 1), 0 0 4px #ffffff;
+    transform: scale(1.06);
+  }
+}
+
+.ep-blink-urgent-gold {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.3px !important;
+  border: 1px solid #f59e0b !important;
+  border-radius: 6px !important;
+  padding: 4px 10px !important;
+  animation: epBlinkUrgentGold 1s infinite ease-in-out !important;
+  cursor: pointer;
+}
+
+.ep-blink-urgent-red {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  font-weight: 900 !important;
+  border-radius: 20px !important;
+  padding: 3px 10px !important;
+  animation: epBlinkUrgentRed 0.85s infinite ease-in-out !important;
+}
+

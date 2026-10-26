@@ -18,6 +18,11 @@
   let waitingPollInterval = null;
   let waitingCountdownInterval = null;
   let currentWaitingOrderId = null;
+  let currentSmartCents = 0.00;
+  let systemCPollingInterval = null;
+  let zeroSlipCountdownInterval = null;
+  let currentPaymentConfig = { mode: 'system_c', smart_cents_enabled: false };
+  let lastBookingResult = null;
 
   document.addEventListener('DOMContentLoaded', () => {
     try {
@@ -31,16 +36,168 @@
   });
 
   function initBookingPage() {
+    initBookingUiMode();
+    initPaymentMode();
     loadEventDetails();
     renderTiers();
+    syncTiersFromMaster();
     updateBookingSummary();
     setupInputListeners();
+    setupSSEListener();
+
+    // คีย์ลัดสลับโหมด Alt+T สำหรับผู้ดูแลระบบ
+    window.addEventListener('keydown', function (e) {
+      if (e.altKey && (e.key === 't' || e.key === 'T')) {
+        e.preventDefault();
+        toggleBookingUiMode();
+      }
+    });
 
     // ปลดล็อก Web Audio เมื่อผู้ใช้แตะหน้าจอครั้งแรก
     document.addEventListener('click', function unlockOnce() {
       if (audioAlert) audioAlert.unlockAudio();
       document.removeEventListener('click', unlockOnce);
     }, { once: true });
+  }
+
+  function syncTiersFromMaster() {
+    if (typeof fetch === 'undefined') return;
+    const apiUrl = (typeof EventPayDB !== 'undefined' && typeof EventPayDB.getApiUrl === 'function')
+      ? EventPayDB.getApiUrl('/api/db/ticket_tiers')
+      : ((typeof window !== 'undefined' && window.location.protocol === 'file:') ? 'http://localhost:8080/api/db/ticket_tiers' : '/api/db/ticket_tiers');
+    fetch(apiUrl)
+      .then(r => r.json())
+      .then(tiers => {
+        if (Array.isArray(tiers) && tiers.length > 0) {
+          if (typeof EventPayDB !== 'undefined') {
+            EventPayDB._saveCollection('ticket_tiers', tiers);
+          }
+          renderTiers();
+          updateBookingSummary();
+        }
+      })
+      .catch(() => {});
+  }
+
+  function initPaymentMode() {
+    if (typeof EventPayDB !== 'undefined' && EventPayDB.getPaymentConfig) {
+      currentPaymentConfig = EventPayDB.getPaymentConfig();
+    }
+    if (typeof fetch !== 'undefined') {
+      fetch('/api/payment/config')
+        .then(r => r.json())
+        .then(d => {
+          if (d && d.success && d.config) {
+            currentPaymentConfig = d.config;
+            applyPaymentModeUI(currentPaymentConfig.mode);
+          }
+        })
+        .catch(() => {});
+    }
+    applyPaymentModeUI(currentPaymentConfig ? currentPaymentConfig.mode : 'system_c');
+  }
+
+  function applyPaymentModeUI(mode) {
+    const legacySlipArea = document.getElementById('bookingLegacySlipArea');
+    const zeroSlipRadar = document.getElementById('zeroSlipLiveRadar');
+    const step3Title = document.getElementById('bookingStep3Title');
+    const btnSubmit = document.getElementById('btnSubmitBooking');
+
+    if (mode === 'system_c') {
+      if (legacySlipArea) legacySlipArea.style.display = 'none';
+      if (zeroSlipRadar) zeroSlipRadar.style.display = 'block';
+      if (step3Title) step3Title.textContent = 'ชำระเงินผ่านพร้อมเพย์ (Auto Zero-Slip)';
+      if (btnSubmit) {
+        btnSubmit.innerHTML = '⚡ ยืนยันการจองและเริ่มตรวจจับเงินเข้าอัตโนมัติ';
+        btnSubmit.style.background = 'linear-gradient(135deg, #059669 0%, #10b981 100%)';
+        btnSubmit.style.boxShadow = '0 4px 18px rgba(16, 185, 129, 0.4)';
+      }
+    } else {
+      if (legacySlipArea) legacySlipArea.style.display = 'block';
+      if (zeroSlipRadar) zeroSlipRadar.style.display = 'none';
+      if (step3Title) step3Title.textContent = 'ชำระเงินและแนบสลิป';
+      if (btnSubmit) {
+        btnSubmit.innerHTML = '⚡ ยืนยันการจองและส่งสลิปให้ฝ่ายการเงินตรวจสอบ';
+        btnSubmit.style.background = 'linear-gradient(135deg, #d97706 0%, #f59e0b 100%)';
+        btnSubmit.style.boxShadow = '0 4px 18px rgba(245, 158, 11, 0.4)';
+      }
+    }
+  }
+
+  function startZeroSlipCountdown(seconds = 180) {
+    if (zeroSlipCountdownInterval) clearInterval(zeroSlipCountdownInterval);
+    let remaining = seconds;
+    const timerEl = document.getElementById('zeroSlipCountdownTimer');
+
+    function update() {
+      const mins = Math.floor(remaining / 60);
+      const secs = remaining % 60;
+      if (timerEl) {
+        timerEl.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+      }
+      if (remaining <= 0) {
+        clearInterval(zeroSlipCountdownInterval);
+        if (timerEl) timerEl.textContent = 'หมดอายุ';
+      }
+      remaining--;
+    }
+
+    update();
+    zeroSlipCountdownInterval = setInterval(update, 1000);
+  }
+
+  function setupSSEListener() {
+    if (typeof EventSource !== 'undefined') {
+      try {
+        const sseUrl = (typeof EventPayDB !== 'undefined' && typeof EventPayDB.getApiUrl === 'function')
+          ? EventPayDB.getApiUrl('/api/events')
+          : ((typeof window !== 'undefined' && window.location.protocol === 'file:') ? 'http://localhost:8080/api/events' : '/api/events');
+        const evtSource = new EventSource(sseUrl);
+        evtSource.addEventListener('PAYMENT_CONFIRMED', function (e) {
+          try {
+            const data = JSON.parse(e.data);
+            if (currentWaitingOrderId && data.orderId === currentWaitingOrderId) {
+              handlePaymentSuccessAuto(data.orderId);
+            }
+          } catch (err) {
+            console.warn('[SSE] Parse error:', err);
+          }
+        });
+        evtSource.addEventListener('PAYMENT_CONFIG_CHANGED', function (e) {
+          try {
+            const newConfig = JSON.parse(e.data);
+            currentPaymentConfig = newConfig;
+            applyPaymentModeUI(newConfig.mode);
+            updateBookingSummary();
+          } catch (err) {}
+        });
+        evtSource.addEventListener('TIERS_SYNCED', function (e) {
+          try {
+            syncTiersFromMaster();
+          } catch (err) {}
+        });
+      } catch (err) {
+        console.warn('[SSE] EventSource init warning:', err);
+      }
+    }
+  }
+
+  function handlePaymentSuccessAuto(orderId) {
+    if (zeroSlipCountdownInterval) clearInterval(zeroSlipCountdownInterval);
+    if (systemCPollingInterval) clearInterval(systemCPollingInterval);
+    if (waitingPollInterval) clearInterval(waitingPollInterval);
+    if (waitingCountdownInterval) clearInterval(waitingCountdownInterval);
+
+    if (audioAlert) {
+      try { audioAlert.playValidPass(); } catch (e) {}
+    }
+
+    if (typeof EventPayDB !== 'undefined') {
+      const order = EventPayDB.get('orders', orderId);
+      const payment = EventPayDB.getAll('payments', p => p.order_id === orderId)[0] || null;
+      const tickets = EventPayDB.getAll('tickets', t => t.order_id === orderId && !t.is_void);
+      displayBookingSuccess({ order, payment, tickets });
+    }
   }
 
   function loadEventDetails() {
@@ -229,21 +386,33 @@
     return count;
   }
 
+  function getEffectiveTotal(baseTotal) {
+    currentSmartCents = 0.00;
+    if (baseTotal <= 0) return 0;
+    // บัตรคอนเสิร์ตไม่มียอดเงินเป็นสตางค์ เป็นยอดเต็มจำนวนบาทถ้วนเสมอ
+    return Math.round(baseTotal);
+  }
+
   function updateBookingSummary() {
     const total = getBookingTotalAmount();
     const count = getBookingTotalTickets();
+    const effectiveTotal = getEffectiveTotal(total);
 
     const countEl = document.getElementById('bookingTotalCount');
     const totalEl = document.getElementById('bookingTotalAmount');
     const qrTotalEl = document.getElementById('bookingPromptPayTotal');
 
     if (countEl) countEl.textContent = `${count} ใบ`;
-    if (totalEl) totalEl.textContent = `฿${total.toLocaleString('th-TH', { minimumFractionDigits: 2 })}`;
-    if (qrTotalEl) qrTotalEl.textContent = `฿${total.toLocaleString('th-TH', { minimumFractionDigits: 2 })}`;
+    if (totalEl) totalEl.textContent = `฿${effectiveTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}`;
+    if (qrTotalEl) qrTotalEl.textContent = `฿${effectiveTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}`;
 
     renderAttendeeInputs(count);
-    renderPromptPayQr(total);
+    renderPromptPayQr(effectiveTotal);
     validateFormReadiness();
+
+    if (count > 0 && effectiveTotal > 0 && currentPaymentConfig && currentPaymentConfig.mode === 'system_c') {
+      startZeroSlipCountdown(180);
+    }
   }
 
   function renderAttendeeInputs(totalCount) {
@@ -422,6 +591,179 @@
     validateFormReadiness();
   };
 
+  window.simulateZeroSlipWebhook = async function () {
+    const btn = document.getElementById('btnSimulateZeroSlipWebhook') || document.querySelector('#zeroSlipLiveRadar button');
+    const originalText = btn ? btn.innerHTML : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '⏳ กำลังจำลองเงินเข้าจากธนาคาร...';
+      btn.style.opacity = '0.75';
+    }
+
+    try {
+      // 1. ตรวจสอบว่ามีคำสั่งซื้อค้างอยู่หรือไม่ หากไม่มี ให้เตรียมคำสั่งซื้อให้อัตโนมัติทันที (Smart One-Click)
+      let targetOrderId = currentWaitingOrderId;
+      let orderObj = (targetOrderId && typeof EventPayDB !== 'undefined') ? EventPayDB.get('orders', targetOrderId) : null;
+
+      if (!orderObj || orderObj.payment_status === 'PAID') {
+        // ดึงข้อมูลจากฟอร์มหน้าจอ
+        const custNameInput = document.getElementById('bookingCustName');
+        const custPhoneInput = document.getElementById('bookingCustPhone');
+        let custName = (custNameInput?.value || '').trim();
+        let custPhone = (custPhoneInput?.value || '').trim();
+
+        if (!custName) {
+          custName = 'สมชาย ใจดี (ลูกค้าจองด่วน)';
+          if (custNameInput) custNameInput.value = custName;
+        }
+        if (!custPhone) {
+          custPhone = '081-987-6543';
+          if (custPhoneInput) custPhoneInput.value = custPhone;
+        }
+
+        // ตรวจสอบจำนวนบัตร หากยังไม่ได้เลือก ให้เลือกบัตรแถวแรกอัตโนมัติ (เช่น VIP 1 ใบ)
+        let totalQty = getBookingTotalTickets();
+        if (totalQty === 0) {
+          const tiers = (typeof EventPayDB !== 'undefined') ? EventPayDB.getAll('ticket_tiers') : [];
+          if (tiers && tiers.length > 0) {
+            bookingQuantities[tiers[0].tier_id] = 1;
+            const qtyInput = document.getElementById(`qty_val_${tiers[0].tier_id}`);
+            if (qtyInput) qtyInput.value = 1;
+            const badge = document.getElementById(`badge_${tiers[0].tier_id}`);
+            if (badge) badge.style.display = 'inline-block';
+            const card = document.getElementById(`tier_card_${tiers[0].tier_id}`);
+            if (card) card.classList.add('selected');
+            updateBookingSummary();
+          }
+        }
+
+        // สร้างรายการบัตร
+        const items = [];
+        const allTiers = (typeof EventPayDB !== 'undefined') ? EventPayDB.getAll('ticket_tiers') : [];
+        allTiers.forEach(t => {
+          const q = bookingQuantities[t.tier_id] || 0;
+          if (q > 0) {
+            items.push({
+              tier_id: t.tier_id,
+              quantity: q,
+              attendee_names: [custName]
+            });
+          }
+        });
+        if (items.length === 0 && allTiers.length > 0) {
+          items.push({ tier_id: allTiers[0].tier_id, quantity: 1, attendee_names: [custName] });
+        }
+
+        const newOrderId = 'ORD-' + Date.now();
+        const orderData = {
+          order_id: newOrderId,
+          customer_name: custName,
+          customer_phone: custPhone,
+          payment_method: 'TRANSFER',
+          shift_id: 'SHIFT-ONLINE-SELF',
+          bank_ref: 'AUTO-PROMPTPAY-' + Date.now().toString().slice(-6),
+          slip_url: '',
+          requires_verification: true,
+          items: items
+        };
+
+        // บันทึกคำสั่งซื้อลงใน Client LocalStorage
+        const localCreated = EventPayDB.createOrder(orderData, 'ONLINE_CUSTOMER');
+        currentWaitingOrderId = localCreated.order.order_id;
+        targetOrderId = currentWaitingOrderId;
+        orderObj = localCreated.order;
+
+        // ซิงก์คำสั่งซื้อขึ้น Master Server (หากออนไลน์) เพื่อให้ตู้ Kiosk และ Server DB รับรู้พร้อมกันทันที
+        const apiUrlOrder = (typeof EventPayDB !== 'undefined' && typeof EventPayDB.getApiUrl === 'function')
+          ? EventPayDB.getApiUrl('/api/orders/create')
+          : ((typeof window !== 'undefined' && window.location.protocol === 'file:') ? 'http://localhost:8080/api/orders/create' : '/api/orders/create');
+        try {
+          await fetch(apiUrlOrder, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ orderData: { ...orderData, order_id: targetOrderId }, cashierId: 'ONLINE_CUSTOMER' })
+          });
+        } catch (eOrderSync) {
+          console.warn('[Simulate Zero-Slip] Master server order sync warn (continuing offline):', eOrderSync);
+        }
+      }
+
+      // 2. ดึงยอดเงินและสร้างรหัสธุรกรรมจำลอง
+      const totalAmount = orderObj ? orderObj.total_amount : (getEffectiveTotal(getBookingTotalAmount()) || 2000.00);
+      const custName = orderObj ? orderObj.customer_name : 'สมชาย ใจดี';
+      const simRef = 'KBANK-BOT-' + Date.now().toString().slice(-8);
+
+      const payload = {
+        amount: totalAmount,
+        order_id: targetOrderId,
+        bank: 'KBANK',
+        bank_ref: simRef,
+        sender_name: custName,
+        timestamp: new Date().toISOString()
+      };
+
+      console.log('[Simulate Zero-Slip Webhook] Triggering bank notification payload:', payload);
+
+      // 3. ส่งสัญญาณ Webhook ไปยัง Master Server (ถ้ามี)
+      const apiUrlNotif = (typeof EventPayDB !== 'undefined' && typeof EventPayDB.getApiUrl === 'function')
+        ? EventPayDB.getApiUrl('/api/payment/notification')
+        : ((typeof window !== 'undefined' && window.location.protocol === 'file:') ? 'http://localhost:8080/api/payment/notification' : '/api/payment/notification');
+
+      try {
+        const res = await fetch(apiUrlNotif, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data && data.success) {
+          console.log('[Simulate Zero-Slip Webhook] Server confirmed successfully:', data);
+        }
+      } catch (eFetch) {
+        console.warn('[Simulate Zero-Slip Webhook] Server notification fetch warn:', eFetch);
+      }
+
+      // 4. การันตี 100% ในฐานข้อมูล Local Client (Fail-Safe Dual Confirmation)
+      if (typeof EventPayDB !== 'undefined') {
+        EventPayDB.autoConfirmPromptPayPayment(payload, 'AUTO-BOT-ZERO-SLIP');
+      }
+
+      // 5. แสดงผลลัพธ์ Visual Feedback และปลดล็อกหน้าจอออกตั๋วทันที
+      if (btn) {
+        btn.innerHTML = `✅ ได้รับเงินโอน ฿${totalAmount.toLocaleString()} สำเร็จ!`;
+        btn.style.background = 'rgba(16, 185, 129, 0.4)';
+      }
+
+      if (audioAlert) {
+        try { audioAlert.playValidPass(); } catch (e) {}
+      }
+
+      const notice = document.getElementById('bookingValidationNotice');
+      if (notice) {
+        notice.innerHTML = `<span style="color: #34d399; font-weight: 700;">⚡ ได้รับแจ้งเงินเข้าจากธนาคารกสิกรไทย ฿${totalAmount.toLocaleString()} ➔ ปลดล็อกตั๋วสำเร็จ!</span>`;
+      }
+
+      // ปลดล็อกหน้าจอออกตั๋ว e-Ticket QR Code และใบเสร็จรับเงิน
+      setTimeout(() => {
+        handlePaymentSuccessAuto(targetOrderId);
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = originalText || '⚡ ทดสอบจำลองธนาคารแจ้งเงินเข้า (Bot 1.5 วินาที)';
+          btn.style.opacity = '1';
+        }
+      }, 500);
+
+    } catch (err) {
+      console.error('[Simulate Zero-Slip Webhook] Fatal error in simulation flow:', err);
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = originalText || '⚡ ทดสอบจำลองธนาคารแจ้งเงินเข้า (Bot 1.5 วินาที)';
+        btn.style.opacity = '1';
+      }
+      alert('⚠️ การจำลองขัดข้อง: ' + err.message);
+    }
+  };
+
   window.simulateFastSlip = function () {
     const refInput = document.getElementById('bookingBankRefInput');
     const statusText = document.getElementById('bookingSlipStatus');
@@ -521,6 +863,7 @@
     const bankRef = bankRefInput?.value.trim();
     const total = getBookingTotalAmount();
     const count = getBookingTotalTickets();
+    const isSystemC = (currentPaymentConfig && currentPaymentConfig.mode === 'system_c');
 
     // ล้างเส้นขอบสีแดงเมื่อผู้ใช้กรอกข้อมูลแล้ว
     if (name && nameInput) nameInput.style.borderColor = '';
@@ -528,28 +871,34 @@
     if (bankRef && bankRefInput) bankRefInput.style.borderColor = '';
     if (attachedSlipBase64 && uploadZone) uploadZone.style.borderColor = '#10b981';
 
-    const isReady = (count > 0 && total > 0 && Boolean(name) && Boolean(phone) && Boolean(bankRef) && Boolean(attachedSlipBase64));
+    const isReady = isSystemC
+      ? (count > 0 && total > 0 && Boolean(name) && Boolean(phone))
+      : (count > 0 && total > 0 && Boolean(name) && Boolean(phone) && Boolean(bankRef) && Boolean(attachedSlipBase64));
 
     if (btn) {
       if (isReady) {
         btn.style.opacity = '1';
-        btn.style.boxShadow = '0 4px 22px rgba(245, 158, 11, 0.7)';
+        btn.style.boxShadow = isSystemC ? '0 4px 22px rgba(16, 185, 129, 0.7)' : '0 4px 22px rgba(245, 158, 11, 0.7)';
       } else {
         btn.style.opacity = '0.9';
-        btn.style.boxShadow = '0 4px 14px rgba(245, 158, 11, 0.3)';
+        btn.style.boxShadow = isSystemC ? '0 4px 14px rgba(16, 185, 129, 0.3)' : '0 4px 14px rgba(245, 158, 11, 0.3)';
       }
     }
 
     if (notice) {
       if (isReady) {
-        notice.innerHTML = '<span style="color: #10b981; font-weight: 700;">✅ ข้อมูลครบถ้วน พร้อมส่งสลิปให้ฝ่ายการเงินตรวจสอบค่ะ</span>';
+        notice.innerHTML = isSystemC
+          ? '<span style="color: #34d399; font-weight: 700;">✅ ข้อมูลครบถ้วน สแกน QR ด้านบน และกดยืนยันเพื่อออกตั๋วอัตโนมัติ</span>'
+          : '<span style="color: #10b981; font-weight: 700;">✅ ข้อมูลครบถ้วน พร้อมส่งสลิปให้ฝ่ายการเงินตรวจสอบค่ะ</span>';
       } else {
         const missing = [];
         if (count === 0) missing.push('เลือกประเภทบัตร');
         if (!name) missing.push('ชื่อ-นามสกุลผู้ซื้อ');
         if (!phone) missing.push('เบอร์โทรศัพท์');
-        if (!attachedSlipBase64) missing.push('แนบรูปสลิป');
-        if (!bankRef) missing.push('เลขที่อ้างอิงสลิป');
+        if (!isSystemC) {
+          if (!attachedSlipBase64) missing.push('แนบรูปสลิป');
+          if (!bankRef) missing.push('เลขที่อ้างอิงสลิป');
+        }
         notice.innerHTML = `<span style="color: #fbbf24; font-size: 0.82rem;">⚠️ รอข้อมูล: ${missing.join(', ')}</span>`;
       }
     }
@@ -667,24 +1016,28 @@
       return;
     }
 
-    if (!attachedSlipBase64) {
-      alert('⚠️ กรุณาแนบรูปภาพสลิปโอนเงิน เพื่อให้ฝ่ายบัญชีตรวจสอบยอดเงินเข้าค่ะ\n(หรือกดปุ่ม "⚡ จำลองแนบสลิปทดสอบ" เพื่อทดสอบความรวดเร็ว)');
-      if (uploadZone) {
-        uploadZone.style.borderColor = '#ef4444';
-        uploadZone.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-      if (notice) notice.innerHTML = '<span style="color: #ef4444; font-weight: 700;">❌ กรุณาแนบรูปภาพสลิปโอนเงิน</span>';
-      return;
-    }
+    const isSystemC = (currentPaymentConfig && currentPaymentConfig.mode === 'system_c');
 
-    if (!bankRef) {
-      alert('⚠️ กรุณากรอกเลขที่อ้างอิงสลิปธนาคาร (เช่น รหัสอ้างอิงการโอนเงิน) ก่อนนะคะ');
-      if (bankRefInput) {
-        bankRefInput.style.borderColor = '#ef4444';
-        bankRefInput.focus();
+    if (!isSystemC) {
+      if (!attachedSlipBase64) {
+        alert('⚠️ กรุณาแนบรูปภาพสลิปโอนเงิน เพื่อให้ฝ่ายบัญชีตรวจสอบยอดเงินเข้าค่ะ\n(หรือกดปุ่ม "⚡ จำลองแนบสลิปทดสอบ" เพื่อทดสอบความรวดเร็ว)');
+        if (uploadZone) {
+          uploadZone.style.borderColor = '#ef4444';
+          uploadZone.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        if (notice) notice.innerHTML = '<span style="color: #ef4444; font-weight: 700;">❌ กรุณาแนบรูปภาพสลิปโอนเงิน</span>';
+        return;
       }
-      if (notice) notice.innerHTML = '<span style="color: #ef4444; font-weight: 700;">❌ กรุณากรอกเลขที่อ้างอิงสลิปธนาคาร</span>';
-      return;
+
+      if (!bankRef) {
+        alert('⚠️ กรุณากรอกเลขที่อ้างอิงสลิปธนาคาร (เช่น รหัสอ้างอิงการโอนเงิน) ก่อนนะคะ');
+        if (bankRefInput) {
+          bankRefInput.style.borderColor = '#ef4444';
+          bankRefInput.focus();
+        }
+        if (notice) notice.innerHTML = '<span style="color: #ef4444; font-weight: 700;">❌ กรุณากรอกเลขที่อ้างอิงสลิปธนาคาร</span>';
+        return;
+      }
     }
 
     // รวบรวมรายชื่อผู้เข้าชม
@@ -715,13 +1068,17 @@
       }
     });
 
+    const effectiveTotal = isSystemC ? getEffectiveTotal(total) : total;
+    const finalBankRef = isSystemC ? ('AUTO-PROMPTPAY-' + Date.now().toString().slice(-6)) : bankRef;
+    const finalSlipUrl = isSystemC ? '' : (attachedSlipBase64 || '');
+
     const orderData = {
       customer_name: custName,
       customer_phone: custPhone,
       payment_method: 'TRANSFER',
       shift_id: 'SHIFT-ONLINE-SELF',
-      bank_ref: bankRef,
-      slip_url: attachedSlipBase64,
+      bank_ref: finalBankRef,
+      slip_url: finalSlipUrl,
       requires_verification: true,
       items: items
     };
@@ -730,8 +1087,47 @@
       const result = EventPayDB.createOrder(orderData, 'ONLINE_CUSTOMER');
       currentWaitingOrderId = result.order.order_id;
 
-      // เริ่มต้นกระบวนการรอตรวจสอบ 3 นาที (Synchronous Verification)
-      startWaitingVerification(result);
+      // [INSERT ACTIVE MODERN LOGIC]: ซิงก์คำสั่งซื้อขึ้น Master Server ทันที เพื่อให้ตู้ Kiosk และ Bot ทำงานได้ข้ามเครื่อง 100%
+      try {
+        const apiUrl = (typeof EventPayDB !== 'undefined' && typeof EventPayDB.getApiUrl === 'function')
+          ? EventPayDB.getApiUrl('/api/orders/create')
+          : ((typeof window !== 'undefined' && window.location.protocol === 'file:') ? 'http://localhost:8080/api/orders/create' : '/api/orders/create');
+        fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderData: { ...orderData, order_id: result.order.order_id }, cashierId: 'ONLINE_CUSTOMER' })
+        }).catch(e => console.warn('[Booking] Server order sync non-blocking error:', e));
+      } catch (eSync) {}
+
+      if (isSystemC) {
+        if (effectiveTotal !== total) {
+          EventPayDB.update('orders', result.order.order_id, { total_amount: effectiveTotal });
+          const p = EventPayDB.getAll('payments', p => p.order_id === result.order.order_id)[0];
+          if (p) EventPayDB.update('payments', p.payment_id, { amount: effectiveTotal });
+        }
+
+        startZeroSlipCountdown(180);
+
+        const btn = document.getElementById('btnSubmitBooking');
+        if (btn) {
+          btn.innerHTML = '🟢 ระบบกำลังรอตรวจจับเงินเข้าอัตโนมัติ (1.5 วินาที)...';
+          btn.disabled = true;
+        }
+        if (notice) {
+          notice.innerHTML = '<span style="color: #34d399; font-weight: 700;">📡 บันทึกคำสั่งซื้อแล้ว ระบบกำลังรอตรวจจับเงินเข้าจากแอปธนาคารอัตโนมัติ</span>';
+        }
+
+        if (systemCPollingInterval) clearInterval(systemCPollingInterval);
+        systemCPollingInterval = setInterval(() => {
+          const freshOrder = EventPayDB.get('orders', result.order.order_id);
+          if (freshOrder && freshOrder.payment_status === 'PAID') {
+            handlePaymentSuccessAuto(result.order.order_id);
+          }
+        }, 1500);
+      } else {
+        // เริ่มต้นกระบวนการรอตรวจสอบ 3 นาที (Synchronous Verification)
+        startWaitingVerification(result);
+      }
 
     } catch (err) {
       console.error('[Booking] Order submission error:', err);
@@ -836,6 +1232,7 @@
   }
 
   function displayBookingSuccess(result) {
+    lastBookingResult = result;
     const formSection = document.getElementById('bookingFormSection');
     const waitingSection = document.getElementById('bookingWaitingSection');
     const successSection = document.getElementById('bookingSuccessSection');
@@ -923,6 +1320,13 @@
           <h3 style="color: var(--accent-gold); font-size: 1.25rem; margin-bottom: 4px;">${escapeHtml(ticket.tier_name)}</h3>
           <p style="font-size: 0.9rem; color: #fff; margin-bottom:10px;">ผู้ถือบัตร: <strong>${escapeHtml(ticket.attendee_name)}</strong></p>
           
+          <!-- SINGLE-USE TICKET BADGE -->
+          <div class="ep-single-use-badge">
+            <div class="ep-single-use-badge-text">
+              <span>🛡️</span> 1 คิวอาร์โค้ด ใช้ได้ 1 ท่านเท่านั้น
+            </div>
+          </div>
+
           <div class="ep-ticket-qr-wrap" id="online_qr_${ticket.ticket_id}" style="width:180px; height:180px; margin:0 auto 10px auto; background:#fff; padding:10px; border-radius:8px; display:flex; align-items:center; justify-content:center;">
             <!-- QR rendered -->
           </div>
@@ -961,8 +1365,33 @@
   }
 
   // ==========================================================================
-  // TICKET LOOKUP & E-TICKET RETRIEVAL
+  // TICKET LOOKUP & E-TICKET RETRIEVAL (DUAL-STATE: PENDING VS APPROVED)
   // ==========================================================================
+  let lookupAutoSyncInterval = null;
+  let lastLookupQuery = '';
+
+  function startLookupAutoSync() {
+    if (lookupAutoSyncInterval) clearInterval(lookupAutoSyncInterval);
+    lookupAutoSyncInterval = setInterval(() => {
+      const modal = document.getElementById('modalTicketLookup');
+      if (!modal || !modal.classList.contains('show')) {
+        clearInterval(lookupAutoSyncInterval);
+        lookupAutoSyncInterval = null;
+        return;
+      }
+      if (!lastLookupQuery) return;
+
+      const pendingCards = document.querySelectorAll('.ep-ticket-pending-card');
+      if (pendingCards.length > 0) {
+        const allOrders = (typeof EventPayDB !== 'undefined' ? EventPayDB.getAll('orders') : []) || [];
+        const hasApprovedOrder = allOrders.some(o => o.payment_status === 'PAID');
+        if (hasApprovedOrder) {
+          window.performTicketLookup(null, true);
+        }
+      }
+    }, 2000);
+  }
+
   window.openTicketLookupModal = function () {
     const modal = document.getElementById('modalTicketLookup');
     if (modal) {
@@ -980,15 +1409,80 @@
   window.closeTicketLookupModal = function () {
     const modal = document.getElementById('modalTicketLookup');
     if (modal) modal.classList.remove('show');
+    if (lookupAutoSyncInterval) {
+      clearInterval(lookupAutoSyncInterval);
+      lookupAutoSyncInterval = null;
+    }
   };
 
-  window.performTicketLookup = function (event) {
+  window.downloadOrPrintTickets = function () {
+    const allApproved = document.querySelectorAll('#lookupResultsContainer [id^="lookup_qr_"]');
+    if (!allApproved || allApproved.length === 0) {
+      alert('ℹ️ บัตรของท่านกำลังอยู่ในขั้นตอนตรวจสอบยอดเงินเข้าจากธนาคาร เมื่อได้รับการอนุมัติแล้ว ระบบจะสร้างคิวอาร์โค้ดให้ท่านดาวน์โหลดหรือพิมพ์ได้ทันทีค่ะ');
+      return;
+    }
+
+    const approvedTickets = [];
+    let parentOrder = null;
+    if (window._currentLookupEvaluated && window._currentLookupEvaluated.length > 0) {
+      window._currentLookupEvaluated.forEach(item => {
+        if (item.isApproved) {
+          approvedTickets.push(item.ticket);
+          if (!parentOrder && item.parentOrder) parentOrder = item.parentOrder;
+        }
+      });
+    }
+
+    if (approvedTickets.length === 0 && typeof EventPayDB !== 'undefined') {
+      allApproved.forEach(el => {
+        const tid = el.id.replace('lookup_qr_', '');
+        const t = EventPayDB.get('tickets', tid);
+        if (t) {
+          approvedTickets.push(t);
+          if (!parentOrder && t.order_id) parentOrder = EventPayDB.get('orders', t.order_id);
+        }
+      });
+    }
+
+    if (approvedTickets.length > 0 && typeof executeBookingThermalPrint === 'function') {
+      executeBookingThermalPrint(parentOrder || {}, approvedTickets, 'TICKETS_ONLY');
+    } else {
+      document.body.classList.add('print-lookup-tickets');
+      window.print();
+      setTimeout(() => {
+        document.body.classList.remove('print-lookup-tickets');
+      }, 1000);
+    }
+  };
+
+  window.downloadSingleTicketQR = function (ticketId) {
+    const qrBox = document.getElementById(`lookup_qr_${ticketId}`);
+    if (!qrBox) return;
+    const canvas = qrBox.querySelector('canvas');
+    const img = qrBox.querySelector('img');
+    const src = canvas ? canvas.toDataURL('image/png') : (img ? img.src : null);
+    if (src) {
+      const a = document.createElement('a');
+      a.href = src;
+      a.download = `EventPay_QR_${ticketId}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+  };
+
+  window.performTicketLookup = function (event, silent = false) {
     if (event) event.preventDefault();
-    const query = document.getElementById('lookupQueryInput').value.trim();
+    const queryInput = document.getElementById('lookupQueryInput');
+    const query = queryInput ? queryInput.value.trim() : lastLookupQuery;
     const container = document.getElementById('lookupResultsContainer');
     if (!query || !container) return;
 
-    container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted);">กำลังค้นหาบัตร...</div>';
+    lastLookupQuery = query;
+
+    if (!silent) {
+      container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted);">กำลังค้นหาบัตร...</div>';
+    }
 
     // Normalize phone number (digits only or raw)
     const cleanDigits = query.replace(/[^0-9]/g, '');
@@ -1020,6 +1514,36 @@
     });
 
     if (matchedTickets.length === 0) {
+      // ตรวจสอบกรณีพบคำสั่งซื้อในระบบที่ยังรอตรวจสอบสเตทเมนต์
+      const matchedOrder = allOrders.find(o => {
+        const matchOrdId = o.order_id && o.order_id.toLowerCase().includes(query.toLowerCase());
+        let matchOrdPhone = false;
+        if (o.customer_phone) {
+          const ordPhoneDigits = o.customer_phone.replace(/[^0-9]/g, '');
+          if (cleanDigits && ordPhoneDigits.includes(cleanDigits)) matchOrdPhone = true;
+        }
+        return matchOrdId || matchOrdPhone;
+      });
+
+      if (matchedOrder && matchedOrder.payment_status === 'PENDING_VERIFICATION') {
+        container.innerHTML = `
+          <div style="text-align: center; padding: 24px 14px; background: rgba(245, 158, 11, 0.1); border: 1.5px dashed #f59e0b; border-radius: 8px;">
+            <div style="font-size: 2.2rem; margin-bottom: 6px; animation: spinHourglass 3s linear infinite;">⏳</div>
+            <div style="color: #fbbf24; font-weight: 800; font-size: 1.05rem; margin-bottom: 6px;">
+              พบคำสั่งซื้อ ${escapeHtml(matchedOrder.order_id)} ของท่าน
+            </div>
+            <div style="font-size: 0.88rem; color: #fef08a; font-weight: 700; margin-bottom: 8px;">
+              (อยู่ระหว่างรอธนาคารตรวจสอบยอดเงินโอน และรอระบบ Bot เจนตั๋วคิวอาร์โค้ดให้อัตโนมัติ ไม่เกิน 3 นาที)
+            </div>
+            <div style="font-size: 0.8rem; color: #94a3b8;">
+              ⚠️ เตือนลูกค้าให้รอธนาคารตรวจสลิป และรอจนกว่า Bot เจนให้เมื่อธนาคารแจ้งได้รับเงิน
+            </div>
+          </div>
+        `;
+        startLookupAutoSync();
+        return;
+      }
+
       container.innerHTML = `
         <div style="text-align: center; padding: 24px 10px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 8px;">
           <div style="font-size: 1.8rem; margin-bottom: 6px;">🔍</div>
@@ -1030,61 +1554,533 @@
       return;
     }
 
-    container.innerHTML = `
-      <div style="font-size: 0.88rem; color: #34d399; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
-        <span>🎉 พบบัตรคอนเสิร์ตจำนวน ${matchedTickets.length} ใบ:</span>
-        <button type="button" class="ep-nav-btn" style="font-size: 0.75rem; padding: 4px 10px;" onclick="window.print()">🖨️ พิมพ์ / แคปเจอร์</button>
-      </div>
-      <div style="display: flex; flex-direction: column; gap: 14px;">
-        ${matchedTickets.map((t, idx) => `
-          <div class="ep-ticket-pass" style="background: #0b1329; border: 1.5px solid var(--border-color); border-radius: 10px; padding: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.4);">
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 6px; margin-bottom: 8px;">
-              <span style="font-size: 0.72rem; color: var(--accent-gold); font-weight: 700;">OFFICIAL E-TICKET #${idx + 1}</span>
-              <span style="font-size: 0.72rem; color: ${t.is_void ? '#ef4444' : (t.gate_status === 'ENTERED' ? '#38bdf8' : '#10b981')}; font-weight: 800;">
-                ● ${t.is_void ? 'บัตรโมฆะ' : (t.gate_status === 'ENTERED' ? 'เข้างานแล้ว' : 'พร้อมเข้างาน')}
-              </span>
-            </div>
-            <div style="font-size: 1.1rem; font-weight: 800; color: var(--accent-gold); margin-bottom: 2px;">
-              ${escapeHtml(t.tier_name)}
-            </div>
-            <div style="font-size: 0.85rem; color: #fff; margin-bottom: 10px;">
-              ผู้ถือบัตร: <strong>${escapeHtml(t.attendee_name || '-')}</strong> (โทร: ${escapeHtml(t.attendee_phone || '-')})
-            </div>
+    // Determine pending and approved cards
+    const hadPendingBefore = document.querySelectorAll('.ep-ticket-pending-card').length > 0;
 
-            <div id="lookup_qr_${t.ticket_id}" style="width: 150px; height: 150px; margin: 0 auto 10px auto; background: #fff; padding: 6px; border-radius: 6px; display: flex; align-items: center; justify-content: center;">
-            </div>
+    // คำนวณสถานะความปลอดภัยของบัตรแต่ละใบอย่างละเอียดรอบคอบ (Strict Dual State Guard)
+    const evaluatedTickets = matchedTickets.map(t => {
+      const parentOrder = allOrders.find(o => o.order_id === t.order_id);
+      const isPending = (parentOrder && parentOrder.payment_status === 'PENDING_VERIFICATION') || 
+                        (t.is_void && parentOrder && parentOrder.payment_status !== 'VOID');
+      const isVoid = (parentOrder && parentOrder.payment_status === 'VOID') || (t.is_void && !isPending);
+      const isApproved = !isPending && !isVoid && ((parentOrder && parentOrder.payment_status === 'PAID') || (!t.is_void));
+      return { ticket: t, parentOrder, isPending, isVoid, isApproved };
+    });
+    window._currentLookupEvaluated = evaluatedTickets;
 
-            <div style="font-family: monospace; font-size: 0.8rem; color: var(--accent-cyan); text-align: center; letter-spacing: 0.5px; margin-bottom: 8px;">
-              ${escapeHtml(t.qr_code_hash)}
-            </div>
+    const pendingCount = evaluatedTickets.filter(x => x.isPending).length;
+    const allPending = evaluatedTickets.length > 0 && pendingCount === evaluatedTickets.length;
 
-            <div style="background: rgba(0,0,0,0.3); border-radius: 6px; padding: 8px; font-size: 0.75rem; color: var(--text-muted); display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
-              <div>รหัสบัตร: <strong style="color: #fff;">${t.ticket_id}</strong></div>
-              <div>คำสั่งซื้อ: <strong style="color: #fff;">${t.order_id || '-'}</strong></div>
-              <div>ริสต์แบนด์: <strong style="color: #a5b4fc;">${t.wristband_id || 'รับหน้าประตู'}</strong></div>
-              <div>จำนวนเข้างาน: <strong style="color: #fff;">${t.entry_count || 0} ครั้ง</strong></div>
-            </div>
+    // [ข้อความตำแหน่งที่ 1]: ด้านบนของผลการค้นหา (Top Header Banner)
+    let headerBannerHtml = '';
+    if (allPending) {
+      headerBannerHtml = `
+        <div style="font-size: 0.88rem; color: #fbbf24; font-weight: 700; margin-bottom: 12px; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 8px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 1.3rem; animation: spinHourglass 3s linear infinite;">⏳</span>
+            <span>พบคำสั่งซื้อของท่าน (อยู่ระหว่างรอธนาคารตรวจสอบยอดเงินโอน และรอระบบ Bot เจนตั๋วคิวอาร์โค้ดให้อัตโนมัติ ไม่เกิน 3 นาที)</span>
           </div>
-        `).join('')}
+          <button type="button" class="ep-nav-btn" style="font-size: 0.78rem; padding: 6px 12px; background: #334155; color: #94a3b8; font-weight: 700; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; cursor: not-allowed; opacity: 0.7;" disabled title="รอธนาคารตรวจสอบและ Bot เจนตั๋วก่อนจึงจะดาวน์โหลดได้">
+            ⏳ รออนุมัติก่อนดาวน์โหลด
+          </button>
+        </div>
+      `;
+    } else if (pendingCount > 0) {
+      headerBannerHtml = `
+        <div style="font-size: 0.88rem; color: #34d399; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+          <div>
+            <span>🎉 พบบัตรคอนเสิร์ตจำนวน ${matchedTickets.length} ใบ</span>
+            <span style="color: #fbbf24; font-size: 0.8rem; margin-left: 6px;">(รอตรวจสเตทเมนต์ ${pendingCount} ใบ):</span>
+          </div>
+          <button type="button" class="ep-nav-btn" style="font-size: 0.78rem; padding: 6px 12px; background: linear-gradient(135deg, #059669 0%, #10b981 100%); color: #fff; font-weight: 800; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);" onclick="window.downloadOrPrintTickets()">
+            Download/🖨️ พิมพ์ / แคปเจอร์ (เฉพาะใบที่อนุมัติ)
+          </button>
+        </div>
+      `;
+    } else {
+      headerBannerHtml = `
+        <div style="font-size: 0.88rem; color: #34d399; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+          <span>🎉 พบบัตรคอนเสิร์ตจำนวน ${matchedTickets.length} ใบ:</span>
+          <button type="button" class="ep-nav-btn" style="font-size: 0.78rem; padding: 6px 12px; background: linear-gradient(135deg, #059669 0%, #10b981 100%); color: #fff; font-weight: 800; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);" onclick="window.downloadOrPrintTickets()">
+            Download/🖨️ พิมพ์ / แคปเจอร์
+          </button>
+        </div>
+      `;
+    }
+
+    container.innerHTML = `
+      ${headerBannerHtml}
+      <div style="display: flex; flex-direction: column; gap: 14px;">
+        ${evaluatedTickets.map(({ ticket: t, parentOrder, isPending, isVoid, isApproved }, idx) => {
+          let statusBadgeHtml = '';
+          if (isPending) {
+            statusBadgeHtml = '<span style="font-size: 0.75rem; color: #f59e0b; font-weight: 800; background: rgba(245, 158, 11, 0.15); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(245, 158, 11, 0.4);">● รอตรวจสเตทเมนต์</span>';
+          } else if (isVoid) {
+            statusBadgeHtml = '<span style="font-size: 0.75rem; color: #ef4444; font-weight: 800; background: rgba(239, 68, 68, 0.15); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(239, 68, 68, 0.4);">● บัตรโมฆะ</span>';
+          } else {
+            const gateText = t.gate_status === 'ENTERED' ? 'เข้างานแล้ว' : 'อนุมัติ';
+            statusBadgeHtml = `<span style="font-size: 0.75rem; color: #10b981; font-weight: 800; background: rgba(16, 185, 129, 0.15); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(16, 185, 129, 0.4);">● ${gateText}</span>`;
+          }
+
+          // [ข้อความตำแหน่งที่ 2]: ในคิวอาร์โค้ด (QR Area)
+          let centerAreaHtml = '';
+          if (isPending) {
+            centerAreaHtml = `
+              <div class="ep-ticket-pending-card" style="width: 100%; max-width: 320px; min-height: 150px; margin: 12px auto; background: rgba(15, 23, 42, 0.85); border: 1.5px dashed #f59e0b; border-radius: 8px; padding: 16px 14px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; box-shadow: 0 0 15px rgba(245, 158, 11, 0.15);">
+                <div style="font-size: 2.2rem; margin-bottom: 6px; animation: spinHourglass 3s linear infinite;">⏳</div>
+                <div style="color: #fbbf24; font-weight: 800; font-size: 1rem; line-height: 1.4;">
+                  ระบบรอสร้างคิวอาร์โค้ดบัตร<br>เมื่อธนาคารรับเงินแล้ว
+                </div>
+                <div style="font-size: 0.82rem; color: #fef08a; margin-top: 8px; font-weight: 600; line-height: 1.4;">
+                  ⚠️ เตือนลูกค้าให้รอธนาคารตรวจสลิป และรอจนกว่า Bot เจนให้เมื่อธนาคารแจ้งได้รับเงิน
+                </div>
+                <div style="font-size: 0.74rem; color: #94a3b8; margin-top: 6px;">
+                  (ระบบจะออกตั๋วคิวอาร์โค้ดให้อัตโนมัติทันทีที่ยอดเงินเข้าบัญชี ไม่เกิน 3 นาที)
+                </div>
+              </div>
+            `;
+          } else if (isVoid) {
+            centerAreaHtml = `
+              <div style="width: 100%; max-width: 320px; min-height: 110px; margin: 12px auto; background: rgba(239, 68, 68, 0.1); border: 1.5px dashed #ef4444; border-radius: 8px; padding: 16px 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
+                <div style="font-size: 2rem; margin-bottom: 6px;">🚫</div>
+                <div style="color: #f87171; font-weight: 800; font-size: 0.92rem;">
+                  บัตรถูกระงับสิทธิ์ / คำสั่งซื้อเป็นโมฆะ
+                </div>
+              </div>
+            `;
+          } else {
+            centerAreaHtml = `
+              <div id="lookup_qr_${t.ticket_id}" style="width: 150px; height: 150px; margin: 0 auto 10px auto; background: #fff; padding: 6px; border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+              </div>
+              <div style="font-family: monospace; font-size: 0.8rem; color: var(--accent-cyan); text-align: center; letter-spacing: 0.5px; margin-bottom: 8px;">
+                ${escapeHtml(t.qr_code_hash)}
+              </div>
+            `;
+          }
+
+          return `
+            <div class="ep-ticket-pass" style="background: #0b1329; border: 1.5px solid var(--border-color); border-radius: 10px; padding: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); position: relative; overflow: hidden;">
+              <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 6px; margin-bottom: 8px;">
+                <span style="font-size: 0.72rem; color: var(--accent-gold); font-weight: 700;">OFFICIAL E-TICKET #${idx + 1}</span>
+                ${statusBadgeHtml}
+              </div>
+              <div style="font-size: 1.1rem; font-weight: 800; color: var(--accent-gold); margin-bottom: 2px;">
+                ${escapeHtml(t.tier_name)}
+              </div>
+              <div style="font-size: 0.85rem; color: #fff; margin-bottom: 10px;">
+                ผู้ถือบัตร: <strong>${escapeHtml(t.attendee_name || '-')}</strong> (โทร: ${escapeHtml(t.attendee_phone || '-')})
+              </div>
+
+              <!-- SINGLE-USE TICKET BADGE -->
+              <div class="ep-single-use-badge" style="margin: 6px auto 10px auto; max-width: 280px; padding: 6px 10px;">
+                <div class="ep-single-use-badge-text" style="font-size: 0.92rem;">
+                  <span>🛡️</span> 1 คิวอาร์โค้ด ใช้ได้ 1 ท่านเท่านั้น
+                </div>
+              </div>
+
+              ${centerAreaHtml}
+
+              <div style="background: rgba(0,0,0,0.3); border-radius: 6px; padding: 8px; font-size: 0.75rem; color: var(--text-muted); display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                <div>รหัสบัตร: <strong style="color: #fff;">${t.ticket_id}</strong></div>
+                <div>คำสั่งซื้อ: <strong style="color: #fff;">${t.order_id || '-'}</strong></div>
+                <div>ริสต์แบนด์: <strong style="color: #a5b4fc;">${t.wristband_id || 'รับหน้าประตู'}</strong></div>
+                <div>จำนวนเข้างาน: <strong style="color: #fff;">${t.entry_count || 0} ครั้ง</strong></div>
+              </div>
+
+              ${isApproved ? `
+                <button type="button" onclick="downloadSingleTicketQR('${t.ticket_id}')" style="background: rgba(14, 165, 233, 0.15); border: 1px solid rgba(14, 165, 233, 0.4); color: #38bdf8; border-radius: 4px; padding: 5px 10px; font-size: 0.75rem; font-weight: 700; cursor: pointer; margin-top: 8px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                  📥 ดาวน์โหลดภาพ QR Code บัตรใบนี้ (PNG)
+                </button>
+              ` : ''}
+            </div>
+          `;
+        }).join('')}
       </div>
     `;
 
-    // Render QR codes for each ticket in lookup
+    // Render QR codes strictly only for approved tickets
     setTimeout(() => {
-      matchedTickets.forEach(t => {
-        const qrBox = document.getElementById(`lookup_qr_${t.ticket_id}`);
+      evaluatedTickets.forEach(({ ticket: t, isApproved }) => {
+        if (isApproved) {
+          const qrBox = document.getElementById(`lookup_qr_${t.ticket_id}`);
+          if (qrBox && typeof QRCode !== 'undefined') {
+            qrBox.innerHTML = '';
+            new QRCode(qrBox, {
+              text: t.qr_code_hash,
+              width: 138,
+              height: 138,
+              colorDark: '#000000',
+              colorLight: '#ffffff'
+            });
+          }
+        }
+      });
+    }, 50);
+
+    // If it was pending and just transitioned to approved, play sound
+    const nowHasPending = document.querySelectorAll('.ep-ticket-pending-card').length > 0;
+    if (hadPendingBefore && !nowHasPending && silent) {
+      try {
+        if (typeof audioAlert !== 'undefined' && audioAlert && audioAlert.playValidPass) {
+          audioAlert.playValidPass();
+        }
+      } catch (e) {}
+    }
+
+    startLookupAutoSync();
+  };
+
+  // ==========================================================================
+  // THERMAL 80MM UNIFIED PRINT ENGINE FOR ONLINE BOOKING (RECEIPT & TICKETS)
+  // ==========================================================================
+  function resolveCurrentBookingOrderAndTickets() {
+    let order = lastBookingResult?.order;
+    let payment = lastBookingResult?.payment;
+    let tickets = lastBookingResult?.tickets;
+    if ((!order || !order.order_id) && typeof EventPayDB !== 'undefined') {
+      const orderIdEl = document.getElementById('succOrderId') || document.getElementById('rcpOrderId');
+      let orderId = orderIdEl ? orderIdEl.textContent.trim() : null;
+      if (!orderId && currentWaitingOrderId) {
+        orderId = currentWaitingOrderId;
+      }
+      if (orderId) {
+        order = EventPayDB.get('orders', orderId);
+        payment = (EventPayDB.find('payments', p => p.order_id === orderId) || [])[0] || {};
+        tickets = EventPayDB.find('tickets', t => t.order_id === orderId) || [];
+      }
+    }
+    return { order: order || {}, payment: payment || {}, tickets: tickets || [] };
+  }
+
+  function renderBookingThermalPrint(order, tickets, mode, payment) {
+    const container = document.getElementById('bookingThermalPrintContainer');
+    if (!container) return;
+
+    order = order || {};
+    tickets = tickets || [];
+    payment = payment || {};
+
+    const summaryByTier = {};
+    tickets.forEach(t => {
+      const tierName = t.tier_name || 'บัตรคอนเสิร์ต';
+      if (!summaryByTier[tierName]) {
+        summaryByTier[tierName] = { qty: 0, tier_id: t.tier_id, price: 0 };
+      }
+      summaryByTier[tierName].qty++;
+    });
+
+    const allTiers = (typeof EventPayDB !== 'undefined' && EventPayDB.getAll) ? EventPayDB.getAll('ticket_tiers') : [];
+    Object.keys(summaryByTier).forEach(tName => {
+      const item = summaryByTier[tName];
+      const tierObj = allTiers.find(x => x.tier_id === item.tier_id || x.name === tName);
+      item.price = tierObj ? tierObj.price : (order.total_amount && tickets.length > 0 ? (order.total_amount / tickets.length) : 0);
+    });
+
+    const formattedRcpId = `RCP-${new Date(order.created_at || Date.now()).toISOString().slice(0, 10).replace(/-/g, '')}-${(order.order_id || '0000').slice(-4)}`;
+    let html = '';
+
+    // 1. PAGE 1: SIMPLIFIED THERMAL RECEIPT (80MM ROLL) - AUTO-CUT 1
+    if (mode === 'ALL' || mode === 'RECEIPT_ONLY') {
+      html += `
+        <div class="ep-thermal-cut-page" style="text-align: center; font-size: 11px; line-height: 1.35; color: #000;">
+          <div style="font-size: 13px; font-weight: 900; margin-bottom: 2px; letter-spacing: 0.5px;">*** ใบเสร็จรับเงิน ***</div>
+          <div style="font-size: 14px; font-weight: 900; margin-bottom: 2px;">บริษัท ไอซ์ โปรซาวด์ จำกัด</div>
+          <div style="font-size: 11px; font-weight: 700; margin-bottom: 2px;">EVENTPAY CONCERT OFFICIAL 2026</div>
+          <div style="font-size: 9.5px; margin-bottom: 1px;">728 ถ.เพชรเกษม ต.ห้วยจรเข้ อ.เมืองนครปฐม จ.นครปฐม 73000</div>
+          <div style="font-size: 9.5px; margin-bottom: 4px;">โทรศัพท์: 086-366-4434, 095-761-4224</div>
+          
+          <div style="border-top: 1px dashed #000; margin: 4px 0;"></div>
+          
+          <table style="width: 100%; font-size: 10px; line-height: 1.4; text-align: left;">
+            <tr>
+              <td style="width: 35%;">เลขที่ใบเสร็จ:</td>
+              <td style="text-align: right; font-weight: 700;">${escapeHtml(formattedRcpId)}</td>
+            </tr>
+            <tr>
+              <td>อ้างอิงออเดอร์:</td>
+              <td style="text-align: right; font-weight: 700;">${escapeHtml(order.order_id || '-')}</td>
+            </tr>
+            <tr>
+              <td>วันที่-เวลา:</td>
+              <td style="text-align: right;">${new Date(order.created_at || Date.now()).toLocaleString('th-TH')}</td>
+            </tr>
+            <tr>
+              <td>ผู้ซื้อ:</td>
+              <td style="text-align: right; font-weight: 700;">${escapeHtml(order.customer_name || 'ลูกค้าทั่วไป')}</td>
+            </tr>
+            ${order.customer_phone ? `
+            <tr>
+              <td>เบอร์โทร:</td>
+              <td style="text-align: right;">${escapeHtml(order.customer_phone)}</td>
+            </tr>` : ''}
+            <tr>
+              <td>ช่องทาง:</td>
+              <td style="text-align: right; font-weight: 700;">ระบบจองออนไลน์ (Online Self-Service)</td>
+            </tr>
+          </table>
+
+          <div style="border-top: 1px dashed #000; margin: 4px 0;"></div>
+
+          <table style="width: 100%; font-size: 10px; line-height: 1.4; text-align: left;">
+            <thead>
+              <tr style="border-bottom: 1px solid #000;">
+                <th style="padding-bottom: 2px;">รายการบัตร</th>
+                <th style="text-align: center; padding-bottom: 2px; width: 15%;">จน.</th>
+                <th style="text-align: right; padding-bottom: 2px; width: 30%;">รวม (บาท)</th>
+              </tr>
+            </thead>
+            <tbody>
+      `;
+
+      const tierKeys = Object.keys(summaryByTier);
+      if (tierKeys.length > 0) {
+        tierKeys.forEach(tierName => {
+          const item = summaryByTier[tierName];
+          const subtotal = item.price * item.qty;
+          html += `
+            <tr>
+              <td style="padding-top: 2px;">${escapeHtml(tierName)}</td>
+              <td style="text-align: center; padding-top: 2px;">${item.qty}</td>
+              <td style="text-align: right; padding-top: 2px;">฿${Math.round(subtotal).toLocaleString('th-TH')}</td>
+            </tr>
+          `;
+        });
+      } else {
+        html += `
+          <tr>
+            <td style="padding-top: 2px;">บัตรคอนเสิร์ต</td>
+            <td style="text-align: center; padding-top: 2px;">1</td>
+            <td style="text-align: right; padding-top: 2px;">฿${Math.round(order.total_amount || 0).toLocaleString('th-TH')}</td>
+          </tr>
+        `;
+      }
+
+      html += `
+            </tbody>
+          </table>
+
+          <div style="border-top: 1px dashed #000; margin: 4px 0;"></div>
+
+          <table style="width: 100%; font-size: 11px; line-height: 1.4; text-align: left;">
+            <tr>
+              <td style="font-weight: 900; font-size: 12px;">ยอดรวมสุทธิ:</td>
+              <td style="text-align: right; font-weight: 900; font-size: 13px;">฿${Math.round(order.total_amount || 0).toLocaleString('th-TH')}</td>
+            </tr>
+          </table>
+          <div style="font-size: 9.5px; text-align: right; color: #222; margin-top: 1px;">
+            (${convertNumberToThaiBaht(order.total_amount || 0)})
+          </div>
+
+          <div style="border-top: 1px dashed #000; margin: 4px 0;"></div>
+
+          <table style="width: 100%; font-size: 10px; line-height: 1.4; text-align: left;">
+            <tr>
+              <td>วิธีชำระเงิน:</td>
+              <td style="text-align: right; font-weight: 700;">โอนเงินผ่านระบบพร้อมเพย์</td>
+            </tr>
+            <tr>
+              <td>เลขอ้างอิง:</td>
+              <td style="text-align: right; font-weight: 700; font-family: monospace;">${escapeHtml(payment.bank_ref || order.bank_ref || 'AUTO-PROMPTPAY-CONFIRMED')}</td>
+            </tr>
+          </table>
+
+          <div style="border-top: 1px dashed #000; margin: 6px 0 4px 0;"></div>
+          <div style="font-size: 9.5px; text-align: center;">ขอบพระคุณที่ร่วมเป็นส่วนหนึ่งของคอนเสิร์ตประวัติศาสตร์</div>
+          <div style="font-size: 8.5px; text-align: center; color: #444; margin-top: 2px;">--- สิ้นสุดใบเสร็จรับเงิน (Auto-Cut) ---</div>
+        </div>
+      `;
+    }
+
+    // 2. PAGE 2 TO N: FULL-BLEED QR TICKETS (1 TICKET PER PERSON, 1:1 RATIO)
+    if (mode === 'ALL' || mode === 'TICKETS_ONLY') {
+      tickets.forEach((ticket, idx) => {
+        html += `
+          <div class="ep-thermal-cut-page" style="text-align: center; font-size: 11px; line-height: 1.35; color: #000;">
+            <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.5px;">EVENTPAY CONCERT 2026</div>
+            <div style="font-size: 16px; font-weight: 900; margin: 2px 0; letter-spacing: 0.5px;">${escapeHtml(ticket.tier_name)}</div>
+            <div style="font-size: 11px; margin-bottom: 4px;">ผู้ถือบัตร: <strong>${escapeHtml(ticket.attendee_name || order.customer_name || '-')}</strong> (ใบที่ ${idx + 1}/${tickets.length})</div>
+
+            <!-- SINGLE-USE TICKET BADGE -->
+            <div style="border: 1.5px solid #000; border-radius: 4px; padding: 3px 6px; margin: 4px auto 6px auto; font-size: 10px; font-weight: 900; max-width: 230px;">
+              🛡️ 1 คิวอาร์โค้ด ใช้ได้ 1 ท่านเท่านั้น
+            </div>
+
+            <!-- FULL-BLEED HIGH-CONTRAST QR CODE (195-200PX) -->
+            <div id="booking_thermal_qr_${ticket.ticket_id}" style="display: flex; justify-content: center; align-items: center; margin: 4px auto; width: 195px; height: 195px;"></div>
+
+            <div style="font-family: monospace; font-size: 11px; font-weight: 800; letter-spacing: 1px; margin: 4px 0;">
+              ${escapeHtml(ticket.qr_code_hash)}
+            </div>
+
+            <div style="border-top: 1px dashed #000; margin: 4px 0;"></div>
+
+            <table style="width: 100%; font-size: 10px; line-height: 1.4; text-align: left;">
+              <tr>
+                <td style="width: 40%;">รหัสบัตร:</td>
+                <td style="text-align: right; font-weight: 700; font-family: monospace;">${escapeHtml(ticket.ticket_id)}</td>
+              </tr>
+              <tr>
+                <td>คำสั่งซื้อ:</td>
+                <td style="text-align: right; font-weight: 700; font-family: monospace;">${escapeHtml(ticket.order_id || order.order_id || '-')}</td>
+              </tr>
+              <tr>
+                <td>สถานะประตู:</td>
+                <td style="text-align: right; font-weight: 700;">${escapeHtml(ticket.gate_status || 'WAITING_ENTRY')}</td>
+              </tr>
+              <tr>
+                <td>ริสต์แบนด์:</td>
+                <td style="text-align: right; font-weight: 700;">${escapeHtml(ticket.wristband_id || 'รับสายรัดข้อมือหน้างาน')}</td>
+              </tr>
+            </table>
+
+            <div style="border-top: 1px dashed #000; margin: 5px 0 3px 0;"></div>
+            <div style="font-size: 9px; text-align: center; color: #222;">กรุณาแสดง QR Code นี้ที่ทางเข้าเพื่อสแกนและรับริสต์แบนด์</div>
+            <div style="font-size: 8px; text-align: center; color: #555; margin-top: 1px;">--- สิ้นสุดบัตรผ่านประตู (Auto-Cut) ---</div>
+          </div>
+        `;
+      });
+    }
+
+    container.innerHTML = html;
+  }
+
+  function executeBookingThermalPrint(order, tickets, mode, payment) {
+    const printContainer = document.getElementById('bookingThermalPrintContainer');
+    if (!printContainer) {
+      window.print();
+      return;
+    }
+
+    renderBookingThermalPrint(order, tickets, mode, payment);
+
+    if (mode === 'ALL' || mode === 'TICKETS_ONLY') {
+      tickets.forEach(ticket => {
+        const qrBox = document.getElementById(`booking_thermal_qr_${ticket.ticket_id}`);
         if (qrBox && typeof QRCode !== 'undefined') {
+          qrBox.innerHTML = '';
           new QRCode(qrBox, {
-            text: t.qr_code_hash,
-            width: 138,
-            height: 138,
+            text: ticket.qr_code_hash,
+            width: 195,
+            height: 195,
             colorDark: '#000000',
             colorLight: '#ffffff'
           });
         }
       });
-    }, 50);
+    }
+
+    setTimeout(() => {
+      document.body.classList.add('printing-booking-thermal');
+      printContainer.style.display = 'block';
+
+      const cleanup = () => {
+        document.body.classList.remove('printing-booking-thermal');
+        printContainer.style.display = 'none';
+        window.removeEventListener('afterprint', cleanup);
+      };
+
+      window.addEventListener('afterprint', cleanup);
+      window.print();
+
+      setTimeout(() => {
+        if (document.body.classList.contains('printing-booking-thermal')) {
+          cleanup();
+        }
+      }, 2500);
+    }, 150);
+  }
+
+  // ==========================================================================
+  // SMART PRINT FUNCTIONS (ALL / RECEIPT ONLY / TICKETS ONLY)
+  // ==========================================================================
+  window.printAllReceiptAndTickets = function () {
+    const { order, payment, tickets } = resolveCurrentBookingOrderAndTickets();
+    if (!order.order_id && (!tickets || tickets.length === 0)) {
+      window.print();
+      return;
+    }
+    executeBookingThermalPrint(order, tickets, 'ALL', payment);
   };
+
+  window.printReceiptOnly = function () {
+    const { order, payment, tickets } = resolveCurrentBookingOrderAndTickets();
+    if (!order.order_id) {
+      window.print();
+      return;
+    }
+    executeBookingThermalPrint(order, tickets, 'RECEIPT_ONLY', payment);
+  };
+
+  window.printTicketsOnly = function () {
+    const { order, payment, tickets } = resolveCurrentBookingOrderAndTickets();
+    if (!tickets || tickets.length === 0) {
+      window.print();
+      return;
+    }
+    executeBookingThermalPrint(order, tickets, 'TICKETS_ONLY', payment);
+  };
+
+  // ==========================================================================
+  // BOOKING DUAL-MODE ENGINE (LIVE Mode Default vs TEST Mode)
+  // ==========================================================================
+  window.currentBookingUiMode = 'LIVE';
+
+  function initBookingUiMode() {
+    let savedMode = 'LIVE';
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('mode') === 'test') {
+        savedMode = 'TEST';
+      } else if (localStorage.getItem('ep_booking_ui_mode') === 'TEST') {
+        savedMode = 'TEST';
+      }
+    } catch (e) {}
+    setBookingUiMode(savedMode, false);
+  }
+  window.initBookingUiMode = initBookingUiMode;
+
+  function toggleBookingUiMode() {
+    const nextMode = window.currentBookingUiMode === 'LIVE' ? 'TEST' : 'LIVE';
+    setBookingUiMode(nextMode, true);
+  }
+  window.toggleBookingUiMode = toggleBookingUiMode;
+
+  function setBookingUiMode(mode, notifyUser) {
+    window.currentBookingUiMode = mode === 'TEST' ? 'TEST' : 'LIVE';
+    try {
+      localStorage.setItem('ep_booking_ui_mode', window.currentBookingUiMode);
+    } catch (e) {}
+
+    const simBox = document.getElementById('bookingDevSimulateBox');
+    const badgeText = document.getElementById('bookingModeBadgeText');
+    const badgeDot = document.getElementById('bookingModeBadgeDot');
+    const badge = document.getElementById('bookingModeBadge');
+
+    if (window.currentBookingUiMode === 'TEST') {
+      if (simBox) simBox.style.display = 'block';
+      if (badgeText) badgeText.textContent = '🧪 TEST (โหมดทดสอบ)';
+      if (badgeDot) badgeDot.style.background = '#f59e0b';
+      if (badge) {
+        badge.style.background = 'rgba(245, 158, 11, 0.15)';
+        badge.style.borderColor = '#f59e0b';
+        badge.style.color = '#f59e0b';
+      }
+    } else {
+      if (simBox) simBox.style.display = 'none';
+      if (badgeText) badgeText.textContent = '🟢 LIVE (หน้างานจริง)';
+      if (badgeDot) badgeDot.style.background = '#10b981';
+      if (badge) {
+        badge.style.background = 'rgba(16, 185, 129, 0.15)';
+        badge.style.borderColor = '#10b981';
+        badge.style.color = '#34d399';
+      }
+    }
+
+    if (notifyUser) {
+      console.log(`[Booking UI] Switched mode to: ${window.currentBookingUiMode}`);
+    }
+  }
+  window.setBookingUiMode = setBookingUiMode;
 
   function escapeHtml(text) {
     if (!text) return '';

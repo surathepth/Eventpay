@@ -33,6 +33,7 @@
     loadEventDetails();
     loadActiveShift();
     renderTierCards();
+    syncTiersFromMaster();
     updateTotalSummary();
     updateNetworkBadge();
 
@@ -40,6 +41,7 @@
     if (EventPayDB && typeof EventPayDB.onSyncEvent === 'function') {
       EventPayDB.onSyncEvent((data) => {
         loadActiveShift();
+        syncTiersFromMaster();
       });
     }
 
@@ -48,6 +50,25 @@
       if (audioAlert) audioAlert.unlockAudio();
       document.removeEventListener('click', unlockOnce);
     }, { once: true });
+  }
+
+  function syncTiersFromMaster() {
+    if (typeof fetch === 'undefined') return;
+    const apiUrl = (typeof EventPayDB !== 'undefined' && typeof EventPayDB.getApiUrl === 'function')
+      ? EventPayDB.getApiUrl('/api/db/ticket_tiers')
+      : ((typeof window !== 'undefined' && window.location.protocol === 'file:') ? 'http://localhost:8080/api/db/ticket_tiers' : '/api/db/ticket_tiers');
+    fetch(apiUrl)
+      .then(r => r.json())
+      .then(tiers => {
+        if (Array.isArray(tiers) && tiers.length > 0) {
+          if (typeof EventPayDB !== 'undefined') {
+            EventPayDB._saveCollection('ticket_tiers', tiers);
+          }
+          renderTierCards();
+          updateTotalSummary();
+        }
+      })
+      .catch(() => {});
   }
 
   async function updateNetworkBadge() {
@@ -411,6 +432,80 @@
     }
   }
 
+  let currentPosSlipDataUrl = '';
+
+  window.handlePosSlipUpload = function (event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('กรุณาเลือกไฟล์รูปภาพสลิปเท่านั้น (JPEG / PNG)');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function (e) {
+      const img = new Image();
+      img.onload = function () {
+        // บีบอัดรูปภาพผ่าน Canvas (Max Width 800px, JPEG 0.75)
+        const maxWidth = 800;
+        let w = img.width;
+        let h = img.height;
+        if (w > maxWidth) {
+          h = Math.round((h * maxWidth) / w);
+          w = maxWidth;
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+
+        currentPosSlipDataUrl = canvas.toDataURL('image/jpeg', 0.75);
+        const approxSizeKb = Math.round((currentPosSlipDataUrl.length * 3) / 4 / 1024);
+
+        const previewImg = document.getElementById('posSlipPreviewImg');
+        const previewWrap = document.getElementById('posSlipPreviewWrap');
+        const btnRemove = document.getElementById('btnPosRemoveSlip');
+        const statusText = document.getElementById('slipStatusText');
+
+        if (previewImg) previewImg.src = currentPosSlipDataUrl;
+        if (previewWrap) previewWrap.style.display = 'block';
+        if (btnRemove) btnRemove.style.display = 'inline-block';
+        if (statusText) statusText.textContent = `✅ แนบสลิปจริงเรียบร้อยแล้ว (~${approxSizeKb} KB)`;
+
+        // เติมเลขอ้างอิงอัตโนมัติหากช่องว่างอยู่
+        const refInput = document.getElementById('bankRefInput');
+        if (refInput && !refInput.value.trim()) {
+          refInput.value = 'SLIP-' + Date.now().toString().slice(-6);
+        }
+
+        validateTransferReadiness();
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  window.removePosSlip = function () {
+    currentPosSlipDataUrl = '';
+    const fileInput = document.getElementById('posSlipFileInput');
+    if (fileInput) fileInput.value = '';
+
+    const previewWrap = document.getElementById('posSlipPreviewWrap');
+    const previewImg = document.getElementById('posSlipPreviewImg');
+    const btnRemove = document.getElementById('btnPosRemoveSlip');
+    const statusText = document.getElementById('slipStatusText');
+
+    if (previewWrap) previewWrap.style.display = 'none';
+    if (previewImg) previewImg.src = '';
+    if (btnRemove) btnRemove.style.display = 'none';
+    if (statusText) statusText.textContent = '';
+
+    validateTransferReadiness();
+  };
+
   window.simulateSlipUpload = function () {
     const refInput = document.getElementById('bankRefInput');
     const statusText = document.getElementById('slipStatusText');
@@ -476,7 +571,7 @@
       payment_method: currentPaymentMethod,
       shift_id: shiftId,
       bank_ref: bankRef,
-      slip_url: currentPaymentMethod === 'TRANSFER' ? 'uploads/slips/slip-simulated.jpg' : '',
+      slip_url: currentPaymentMethod === 'TRANSFER' ? (currentPosSlipDataUrl || 'uploads/slips/slip-simulated.jpg') : '',
       items: items
     };
 
@@ -487,6 +582,9 @@
 
       // เสียงติ๊ดสำเร็จ (Success Chime)
       if (audioAlert) audioAlert.playSuccessChime();
+
+      // สร้างโครงสร้างพิมพ์กระดาษ 80 มม. (ใบเสร็จอย่างย่อ + ตั๋วเต็มขอบ Auto-Cut)
+      renderPosThermalPrint(result);
 
       // แสดงใบเสร็จรับเงิน
       openReceiptModal(result);
@@ -513,8 +611,7 @@
     const bankRef = document.getElementById('bankRefInput');
     if (bankRef) bankRef.value = '';
 
-    const slipStatus = document.getElementById('slipStatusText');
-    if (slipStatus) slipStatus.textContent = '';
+    removePosSlip();
 
     renderTierCards();
     updateTotalSummary();
@@ -533,7 +630,7 @@
     document.getElementById('rcptDate').textContent = new Date(order.created_at).toLocaleString('th-TH');
     document.getElementById('rcptCustomer').textContent = `${order.customer_name} ${order.customer_phone ? '(' + order.customer_phone + ')' : ''}`;
     document.getElementById('rcptCashier').textContent = activeShift ? `${activeShift.cashier_name} (${activeShift.desk_id})` : 'แคชเชียร์หลัก';
-    document.getElementById('rcptTotal').textContent = `฿${order.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}`;
+    document.getElementById('rcptTotal').textContent = `฿${Math.round(order.total_amount).toLocaleString('th-TH')}`;
     document.getElementById('rcptPayMethod').textContent = order.payment_method;
 
     // ตารางรายการบัตร
@@ -557,7 +654,7 @@
       tr.innerHTML = `
         <td>${tierName}</td>
         <td style="text-align: center;">${item.qty}</td>
-        <td style="text-align: right;">฿${subtotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
+        <td style="text-align: right;">฿${Math.round(subtotal).toLocaleString('th-TH')}</td>
       `;
       tbody.appendChild(tr);
     });
@@ -574,8 +671,8 @@
 
       const cashReceived = parseFloat(document.getElementById('cashReceivedInput')?.value) || order.total_amount;
       const change = Math.max(0, cashReceived - order.total_amount);
-      document.getElementById('rcptTendered').textContent = `฿${cashReceived.toLocaleString('th-TH', { minimumFractionDigits: 2 })}`;
-      document.getElementById('rcptChange').textContent = `฿${change.toLocaleString('th-TH', { minimumFractionDigits: 2 })}`;
+      document.getElementById('rcptTendered').textContent = `฿${Math.round(cashReceived).toLocaleString('th-TH')}`;
+      document.getElementById('rcptChange').textContent = `฿${Math.round(change).toLocaleString('th-TH')}`;
     } else {
       cashRow.style.display = 'none';
       changeRow.style.display = 'none';
@@ -606,6 +703,13 @@
         <h3 style="color: var(--accent-gold); font-size: 1.15rem; margin-bottom: 4px;">${ticket.tier_name}</h3>
         <p style="font-size: 0.85rem; color: #fff;">ผู้ถือบัตร: <strong>${ticket.attendee_name}</strong></p>
         
+        <!-- SINGLE-USE TICKET BADGE -->
+        <div class="ep-single-use-badge" style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.18) 0%, rgba(217, 119, 6, 0.28) 100%); border: 1.5px solid #f59e0b; border-radius: 6px; padding: 6px 10px; margin: 6px auto 10px auto; text-align: center; max-width: 280px;">
+          <div style="font-size: 0.92rem; font-weight: 900; color: #fbbf24; letter-spacing: 0.5px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <span>🛡️</span> 1 คิวอาร์โค้ด ใช้ได้ 1 ท่านเท่านั้น
+          </div>
+        </div>
+
         <div class="ep-ticket-qr-wrap" id="qr_ticket_${ticket.ticket_id}">
           <!-- QR rendered -->
         </div>
@@ -791,6 +895,12 @@
 
   window.viewTicketsForOrder = function (tickets) {
     closeModal('modalOrders');
+    if (tickets && tickets.length > 0) {
+      const order = EventPayDB.get('orders', tickets[0].order_id);
+      const payment = order ? EventPayDB.get('payments', order.payment_id) : null;
+      lastOrderResult = { success: true, order: order, tickets: tickets, payment: payment };
+      renderPosThermalPrint(lastOrderResult);
+    }
     openTicketsModal(tickets);
   };
 
@@ -810,5 +920,337 @@
   window.switchMainView = function (view) {
     // Single-page navigation handler
   };
+
+  // ==========================================================================
+  // 13. ระบบพิมพ์ใบเสร็จและตั๋วความร้อน 80x80 มม. (Thermal 80mm Auto-Cut System)
+  // ==========================================================================
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function convertNumberToThaiBaht(num) {
+    if (isNaN(num)) return '-';
+    num = Math.round(num * 100) / 100;
+    const parts = num.toFixed(2).split('.');
+    const integerPart = parts[0];
+    const decimalPart = parts[1];
+
+    const thaiNumbers = ['ศูนย์', 'หนึ่ง', 'สอง', 'สาม', 'สี่', 'ห้า', 'หก', 'เจ็ด', 'แปด', 'เก้า'];
+    const thaiDigits = ['', 'สิบ', 'ร้อย', 'พัน', 'หมื่น', 'แสน', 'ล้าน'];
+
+    function readGroup(str) {
+      let result = '';
+      const len = str.length;
+      for (let i = 0; i < len; i++) {
+        const digit = parseInt(str.charAt(i), 10);
+        const pos = len - i - 1;
+        if (digit !== 0) {
+          if (pos === 0 && digit === 1 && len > 1 && str.charAt(i - 1) !== '0') {
+            result += 'เอ็ด';
+          } else if (pos === 1 && digit === 2) {
+            result += 'ยี่สิบ';
+          } else if (pos === 1 && digit === 1) {
+            result += 'สิบ';
+          } else {
+            result += thaiNumbers[digit] + (pos === 1 ? '' : thaiDigits[pos]);
+          }
+        }
+      }
+      return result;
+    }
+
+    let bahtText = '';
+    if (parseInt(integerPart, 10) === 0) {
+      bahtText = 'ศูนย์บาท';
+    } else {
+      let intStr = integerPart;
+      if (intStr.length > 6) {
+        const milPart = intStr.substring(0, intStr.length - 6);
+        intStr = intStr.substring(intStr.length - 6);
+        bahtText += readGroup(milPart) + 'ล้าน';
+      }
+      bahtText += readGroup(intStr) + 'บาท';
+    }
+
+    if (parseInt(decimalPart, 10) === 0) {
+      bahtText += 'ถ้วน';
+    } else {
+      bahtText += readGroup(decimalPart) + 'สตางค์';
+    }
+
+    return bahtText;
+  }
+
+  function renderPosThermalPrint(orderResult) {
+    const container = document.getElementById('posThermalPrintContainer');
+    if (!container) return;
+
+    const order = orderResult.order || {};
+    const payment = orderResult.payment || {};
+    const tickets = orderResult.tickets || [];
+
+    const summaryByTier = {};
+    tickets.forEach(t => {
+      if (!summaryByTier[t.tier_name]) {
+        summaryByTier[t.tier_name] = { qty: 0, tier_id: t.tier_id };
+      }
+      summaryByTier[t.tier_name].qty++;
+    });
+
+    const cashReceived = parseFloat(document.getElementById('cashReceivedInput')?.value) || order.total_amount || 0;
+    const change = Math.max(0, cashReceived - (order.total_amount || 0));
+
+    let html = '';
+
+    // =========================================================================
+    // PAGE 1: SIMPLIFIED THERMAL RECEIPT (80MM ROLL) - AUTO-CUT 1
+    // =========================================================================
+    html += `
+      <div class="ep-thermal-cut-page" style="text-align: center; font-size: 11px; line-height: 1.35; color: #000;">
+        <div style="font-size: 13px; font-weight: 900; margin-bottom: 2px; letter-spacing: 0.5px;">*** ใบเสร็จรับเงิน ***</div>
+        <div style="font-size: 14px; font-weight: 900; margin-bottom: 2px;">บริษัท ไอซ์ โปรซาวด์ จำกัด</div>
+        <div style="font-size: 11px; font-weight: 700; margin-bottom: 2px;">EVENTPAY CONCERT OFFICIAL 2026</div>
+        <div style="font-size: 9.5px; margin-bottom: 1px;">728 ถ.เพชรเกษม ต.ห้วยจรเข้ อ.เมืองนครปฐม จ.นครปฐม 73000</div>
+        <div style="font-size: 9.5px; margin-bottom: 4px;">โทรศัพท์: 086-366-4434, 095-761-4224</div>
+        
+        <div style="border-top: 1px dashed #000; margin: 4px 0;"></div>
+        
+        <table style="width: 100%; font-size: 10px; line-height: 1.4; text-align: left;">
+          <tr>
+            <td style="width: 35%;">เลขที่ใบเสร็จ:</td>
+            <td style="text-align: right; font-weight: 700;">${escapeHtml(payment.payment_id || order.order_id || '-')}</td>
+          </tr>
+          <tr>
+            <td>อ้างอิงออเดอร์:</td>
+            <td style="text-align: right; font-weight: 700;">${escapeHtml(order.order_id || '-')}</td>
+          </tr>
+          <tr>
+            <td>วันที่-เวลา:</td>
+            <td style="text-align: right;">${new Date(order.created_at || Date.now()).toLocaleString('th-TH')}</td>
+          </tr>
+          <tr>
+            <td>ผู้ซื้อ:</td>
+            <td style="text-align: right; font-weight: 700;">${escapeHtml(order.customer_name || 'ลูกค้าหน้างาน')}</td>
+          </tr>
+          ${order.customer_phone ? `
+          <tr>
+            <td>เบอร์โทร:</td>
+            <td style="text-align: right;">${escapeHtml(order.customer_phone)}</td>
+          </tr>` : ''}
+          <tr>
+            <td>แคชเชียร์:</td>
+            <td style="text-align: right;">${escapeHtml(activeShift ? `${activeShift.cashier_name} (${activeShift.desk_id})` : 'แคชเชียร์หลัก')}</td>
+          </tr>
+        </table>
+
+        <div style="border-top: 1px dashed #000; margin: 4px 0;"></div>
+
+        <table style="width: 100%; font-size: 10px; line-height: 1.4; text-align: left;">
+          <thead>
+            <tr style="border-bottom: 1px solid #000;">
+              <th style="padding-bottom: 2px;">รายการบัตร</th>
+              <th style="text-align: center; padding-bottom: 2px; width: 15%;">จน.</th>
+              <th style="text-align: right; padding-bottom: 2px; width: 30%;">รวม (บาท)</th>
+            </tr>
+          </thead>
+          <tbody>
+    `;
+
+    Object.keys(summaryByTier).forEach(tierName => {
+      const item = summaryByTier[tierName];
+      const tierObj = EventPayDB.get('ticket_tiers', item.tier_id);
+      const price = tierObj ? tierObj.price : 0;
+      const subtotal = price * item.qty;
+      html += `
+        <tr>
+          <td style="padding-top: 2px;">${escapeHtml(tierName)}</td>
+          <td style="text-align: center; padding-top: 2px;">${item.qty}</td>
+          <td style="text-align: right; padding-top: 2px;">฿${Math.round(subtotal).toLocaleString('th-TH')}</td>
+        </tr>
+      `;
+    });
+
+    html += `
+          </tbody>
+        </table>
+
+        <div style="border-top: 1px dashed #000; margin: 4px 0;"></div>
+
+        <table style="width: 100%; font-size: 11px; line-height: 1.4; text-align: left;">
+          <tr>
+            <td style="font-weight: 900; font-size: 12px;">ยอดรวมสุทธิ:</td>
+            <td style="text-align: right; font-weight: 900; font-size: 13px;">฿${Math.round(order.total_amount || 0).toLocaleString('th-TH')}</td>
+          </tr>
+        </table>
+        <div style="font-size: 9.5px; text-align: right; color: #222; margin-top: 1px;">
+          (${convertNumberToThaiBaht(order.total_amount || 0)})
+        </div>
+
+        <div style="border-top: 1px dashed #000; margin: 4px 0;"></div>
+
+        <table style="width: 100%; font-size: 10px; line-height: 1.4; text-align: left;">
+    `;
+
+    if (order.payment_method === 'CASH') {
+      html += `
+          <tr>
+            <td>วิธีชำระเงิน:</td>
+            <td style="text-align: right; font-weight: 700;">เงินสด (CASH)</td>
+          </tr>
+          <tr>
+            <td>รับเงินสด:</td>
+            <td style="text-align: right; font-weight: 700;">฿${Math.round(cashReceived).toLocaleString('th-TH')}</td>
+          </tr>
+          <tr>
+            <td style="font-weight: 700;">เงินทอน:</td>
+            <td style="text-align: right; font-weight: 900;">฿${Math.round(change).toLocaleString('th-TH')}</td>
+          </tr>
+      `;
+    } else {
+      html += `
+          <tr>
+            <td>วิธีชำระเงิน:</td>
+            <td style="text-align: right; font-weight: 700;">เงินโอน / QR PROMPTPAY</td>
+          </tr>
+          <tr>
+            <td>เลขอ้างอิงสลิป:</td>
+            <td style="text-align: right; font-weight: 700; font-family: monospace;">${escapeHtml(payment.bank_ref || 'QR-PROMPTPAY-CONFIRMED')}</td>
+          </tr>
+      `;
+    }
+
+    html += `
+        </table>
+
+        <div style="border-top: 1px dashed #000; margin: 6px 0 4px 0;"></div>
+        <div style="font-size: 9.5px; text-align: center;">ขอบพระคุณที่ร่วมเป็นส่วนหนึ่งของคอนเสิร์ตประวัติศาสตร์</div>
+        <div style="font-size: 8.5px; text-align: center; color: #444; margin-top: 2px;">--- สิ้นสุดใบเสร็จรับเงิน (Auto-Cut) ---</div>
+      </div>
+    `;
+
+    // =========================================================================
+    // PAGE 2 TO N: FULL-BLEED QR TICKETS (1 TICKET PER PERSON, 1:1 RATIO)
+    // =========================================================================
+    tickets.forEach((ticket, idx) => {
+      html += `
+        <div class="ep-thermal-cut-page" style="text-align: center; font-size: 11px; line-height: 1.35; color: #000;">
+          <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.5px;">EVENTPAY CONCERT 2026</div>
+          <div style="font-size: 16px; font-weight: 900; margin: 2px 0; letter-spacing: 0.5px;">${escapeHtml(ticket.tier_name)}</div>
+          <div style="font-size: 11px; margin-bottom: 4px;">ผู้ถือบัตร: <strong>${escapeHtml(ticket.attendee_name || order.customer_name)}</strong> (ใบที่ ${idx + 1}/${tickets.length})</div>
+
+          <!-- SINGLE-USE TICKET BADGE -->
+          <div style="border: 1.5px solid #000; border-radius: 4px; padding: 3px 6px; margin: 4px auto 6px auto; font-size: 10px; font-weight: 900; max-width: 230px;">
+            🛡️ 1 คิวอาร์โค้ด ใช้ได้ 1 ท่านเท่านั้น
+          </div>
+
+          <!-- FULL-BLEED HIGH-CONTRAST QR CODE (195-200PX) -->
+          <div id="thermal_qr_${ticket.ticket_id}" style="display: flex; justify-content: center; align-items: center; margin: 4px auto; width: 195px; height: 195px;"></div>
+
+          <div style="font-family: monospace; font-size: 11px; font-weight: 800; letter-spacing: 1px; margin: 4px 0;">
+            ${escapeHtml(ticket.qr_code_hash)}
+          </div>
+
+          <div style="border-top: 1px dashed #000; margin: 4px 0;"></div>
+
+          <table style="width: 100%; font-size: 10px; line-height: 1.4; text-align: left;">
+            <tr>
+              <td style="width: 40%;">รหัสบัตร:</td>
+              <td style="text-align: right; font-weight: 700; font-family: monospace;">${escapeHtml(ticket.ticket_id)}</td>
+            </tr>
+            <tr>
+              <td>คำสั่งซื้อ:</td>
+              <td style="text-align: right; font-weight: 700; font-family: monospace;">${escapeHtml(ticket.order_id)}</td>
+            </tr>
+            <tr>
+              <td>สถานะประตู:</td>
+              <td style="text-align: right; font-weight: 700;">${escapeHtml(ticket.gate_status || 'WAITING_ENTRY')}</td>
+            </tr>
+            <tr>
+              <td>ริสต์แบนด์:</td>
+              <td style="text-align: right; font-weight: 700;">${escapeHtml(ticket.wristband_id || 'รอผูกหน้าประตู')}</td>
+            </tr>
+          </table>
+
+          <div style="border-top: 1px dashed #000; margin: 5px 0 3px 0;"></div>
+          <div style="font-size: 9px; text-align: center; color: #222;">กรุณาแสดง QR Code นี้ที่ทางเข้าเพื่อสแกนและรับริสต์แบนด์</div>
+          <div style="font-size: 8px; text-align: center; color: #555; margin-top: 1px;">--- สิ้นสุดบัตรผ่านประตู (Auto-Cut) ---</div>
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+  }
+
+  window.printThermalReceiptAndTickets = function () {
+    if (!lastOrderResult || !lastOrderResult.order) {
+      alert('ไม่พบข้อมูลคำสั่งซื้อที่จะพิมพ์');
+      return;
+    }
+
+    const printContainer = document.getElementById('posThermalPrintContainer');
+    if (!printContainer) {
+      window.print();
+      return;
+    }
+
+    renderPosThermalPrint(lastOrderResult);
+
+    const tickets = lastOrderResult.tickets || [];
+    tickets.forEach(ticket => {
+      const qrBox = document.getElementById(`thermal_qr_${ticket.ticket_id}`);
+      if (qrBox && typeof QRCode !== 'undefined') {
+        qrBox.innerHTML = '';
+        new QRCode(qrBox, {
+          text: ticket.qr_code_hash,
+          width: 195,
+          height: 195,
+          colorDark: '#000000',
+          colorLight: '#ffffff'
+        });
+      }
+    });
+
+    setTimeout(() => {
+      document.body.classList.add('printing-pos-thermal');
+      printContainer.style.display = 'block';
+
+      const cleanup = () => {
+        document.body.classList.remove('printing-pos-thermal');
+        printContainer.style.display = 'none';
+        window.removeEventListener('afterprint', cleanup);
+        closeModal('modalReceipt');
+        closeModal('modalTickets');
+      };
+
+      window.addEventListener('afterprint', cleanup);
+
+      window.print();
+
+      setTimeout(() => {
+        if (document.body.classList.contains('printing-pos-thermal')) {
+          cleanup();
+        }
+      }, 2500);
+    }, 150);
+  };
+
+  // Keyboard shortcut for fast cashier checkout: Enter = Print & Auto-Cut, Escape = Close
+  document.addEventListener('keydown', function (e) {
+    const modalReceipt = document.getElementById('modalReceipt');
+    if (modalReceipt && modalReceipt.classList.contains('show')) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        window.printThermalReceiptAndTickets();
+      } else if (e.key === 'Escape') {
+        window.closeModal('modalReceipt');
+      }
+    }
+  });
 
 })();

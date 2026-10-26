@@ -6,8 +6,53 @@
   <meta name="theme-color" content="#030712">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>EventPay Kiosk Gate - ประตูตรวจสิทธิ์ 3 ประสาน งานคอนเสิร์ต</title>
-  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/styles.css?v=20261024_0100">
+  <style>
+    .ep-outside-card {
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      border-radius: 10px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .ep-outside-card:hover {
+      border-color: #38bdf8;
+      box-shadow: 0 4px 14px rgba(56, 189, 248, 0.15);
+      background: #131d31;
+    }
+    .ep-outside-card.removing {
+      opacity: 0;
+      transform: scale(0.92) translateY(-10px);
+      max-height: 0;
+      padding-top: 0;
+      padding-bottom: 0;
+      margin: 0;
+      overflow: hidden;
+      border-color: transparent;
+    }
+  </style>
+  <script>
+    // Auto-Bridge: หากเปิดจาก Explorer (file:///) และ Master Server (Port 8080) ทำงานอยู่ ให้บริดจ์อัตโนมัติ
+    (function() {
+      if (window.location.protocol === 'file:') {
+        fetch('http://localhost:8080/api/status')
+          .then(res => res.json())
+          .then(data => {
+            if (data && data.status === 'ONLINE') {
+              window.location.replace('http://localhost:8080/kiosk.html');
+            }
+          })
+          .catch(() => {});
+      }
+    })();
+  </script>
 </head>
 <body class="ep-kiosk-body">
 
@@ -32,6 +77,18 @@
     </div>
 
     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+      <!-- GATE DIRECTION TOGGLE BUTTON (IN / OUT) -->
+      <button type="button" id="btnGateDirectionToggle" class="ep-nav-btn" style="background: linear-gradient(135deg, #059669 0%, #10b981 100%); color: #fff; font-weight: 800; border: 1.5px solid #34d399; font-size: 0.88rem; padding: 6px 14px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.35); transition: all 0.2s;" onclick="toggleGateDirection()">
+        <span id="gateModeIcon" style="font-size: 1.15rem;">🚪</span>
+        <span id="gateModeText">โหมดประตู: ทางเข้า (IN)</span>
+      </button>
+
+      <!-- LIVE / TEST DUAL-MODE TOGGLE BUTTON -->
+      <button type="button" id="btnToggleGateDevMode" class="ep-nav-btn" style="background: rgba(16, 185, 129, 0.15); border: 1.5px solid #10b981; color: #34d399; font-weight: 800; font-size: 0.82rem; padding: 6px 12px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s ease; box-shadow: 0 2px 6px rgba(16, 185, 129, 0.2);" onclick="toggleGateDevMode()" title="คลิกเพื่อสลับระหว่างโหมดหน้างานจริง (Clean Gate) และโหมดทดสอบระบบ (Test Simulator)">
+        <span id="gateModeBadgeDot" style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; display: inline-block; box-shadow: 0 0 6px #10b981;"></span>
+        <span id="gateModeBadgeText">🟢 โหมดหน้างานจริง (LIVE)</span>
+      </button>
+
       <span class="ep-nav-btn" style="background: #0f233a; border-color: #1e40af; font-size: 0.78rem;" id="badgeAudioStatus">
         🔊 ลำโพงไซเรน: พร้อมใช้งาน
       </span>
@@ -44,6 +101,10 @@
           🛡️ เมนูช่างเทคนิคและประตู ▾
         </button>
         <div class="ep-dropdown-menu">
+          <button type="button" class="ep-dropdown-item" onclick="toggleGateDevMode()">
+            <span>🛠️ สลับโหมดทดสอบ / หน้างานจริง</span>
+            <span class="ep-badge ep-badge-pass" id="dropdownModeLabel" style="font-size: 0.68rem;">LIVE</span>
+          </button>
           <button type="button" class="ep-dropdown-item" onclick="toggleKioskFullscreen()">
             <span>⛶ ขยายเต็มจอ (Fullscreen Mode)</span>
             <span class="ep-badge ep-badge-pass" style="font-size: 0.68rem;">Lock</span>
@@ -142,11 +203,29 @@
         <form id="gateScanForm" onsubmit="event.preventDefault(); processGateScan();">
           <!-- 1. QR CODE INPUT -->
           <div class="ep-form-group">
-            <label class="ep-form-label" style="font-size: 0.95rem;">
-              [1] รหัส QR Code บนบัตร หรือ e-Ticket Hash <span style="color: var(--accent-red);">*</span>
-            </label>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 6px;">
+              <label class="ep-form-label" style="font-size: 0.95rem; margin-bottom: 0;">
+                [1] รหัส QR Code บนบัตร หรือ e-Ticket Hash <span style="color: var(--accent-red);">*</span>
+              </label>
+              <!-- QUICK ACTIONS HELPER (CONTROLLED BY DUAL-MODE: HIDDEN IN LIVE PRODUCTION) -->
+              <div id="kioskDevQuickActions" style="display: none; gap: 6px;">
+                <input type="file" id="kioskQrFileInput" accept="image/*" style="display: none;" onchange="handleQrFileUpload(event)">
+                <button type="button" class="ep-nav-btn" onclick="document.getElementById('kioskQrFileInput').click()" style="padding: 4px 10px; font-size: 0.78rem; background: rgba(59, 130, 246, 0.18); border: 1px solid #3b82f6; color: #60a5fa; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font-weight: 700;">
+                  📁 แนบรูปภาพ QR Code
+                </button>
+                <button type="button" class="ep-nav-btn" onclick="openQuickTicketModal()" style="padding: 4px 10px; font-size: 0.78rem; background: rgba(16, 185, 129, 0.18); border: 1px solid #10b981; color: #34d399; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font-weight: 700;">
+                  🎫 เลือกตั๋วในระบบ
+                </button>
+              </div>
+            </div>
             <input type="text" class="ep-input" id="gateQrInput" placeholder="ยิงสแกน QR Code หรือกรอกรหัสตั๋ว..."
                    style="font-size: 1.25rem; font-weight: 800; color: var(--accent-cyan); font-family: monospace;" autofocus>
+
+            <!-- QR IMAGE PREVIEW & DECODE STATUS BADGE -->
+            <div id="qrUploadStatusBadge" style="display: none; align-items: center; gap: 8px; margin-top: 6px; padding: 6px 12px; background: rgba(16, 185, 129, 0.12); border: 1px solid #10b981; border-radius: 4px; font-size: 0.82rem; color: #34d399;">
+              <span id="qrUploadStatusText">✓ ถอดรหัส QR Code สำเร็จ</span>
+              <button type="button" onclick="clearQrUpload()" style="margin-left: auto; background: transparent; border: none; color: #94a3b8; cursor: pointer; font-size: 0.8rem;">✕ ล้าง</button>
+            </div>
           </div>
 
           <!-- 2. WRISTBAND UID INPUT -->
@@ -164,10 +243,11 @@
           </button>
         </form>
 
-        <!-- PRE-LOADED QUICK TEST BUTTONS -->
-        <div style="border-top: 1px solid var(--border-color); padding-top: 14px; margin-top: 18px;">
+        <!-- PRE-LOADED QUICK TEST BUTTONS (CONTROLLED BY DUAL-MODE: HIDDEN IN LIVE PRODUCTION) -->
+        <div id="kioskDevDemoPanel" style="display: none; border-top: 1px solid var(--border-color); padding-top: 14px; margin-top: 18px; background: rgba(245, 158, 11, 0.04); border-radius: 8px; padding: 12px; border: 1px dashed rgba(245, 158, 11, 0.3);">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <span style="font-size: 0.82rem; font-weight: 700; color: var(--text-muted);">⚡ ปุ่มทดสอบจำลองเหตุการณ์หน้างานจริง (One-Click Demo):</span>
+            <span style="font-size: 0.82rem; font-weight: 700; color: var(--accent-gold);">⚡ แผงทดสอบจำลองเหตุการณ์หน้างาน (Test Simulator):</span>
+            <button type="button" onclick="toggleGateDevMode(false)" style="background: transparent; border: none; color: #94a3b8; font-size: 0.75rem; cursor: pointer;">✕ ซ่อนแผงทดสอบ</button>
           </div>
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
@@ -177,11 +257,20 @@
             <button type="button" class="ep-nav-btn" style="background: #064e3b; border-color: #059669; font-size: 0.78rem;" onclick="fillTestTicket('NEW_REG')">
               🎟️ บัตรใหม่ 2 (REG นางสาวสมหญิง)
             </button>
-            <button type="button" class="ep-nav-btn" style="background: #7f1d1d; border-color: #dc2626; color: #fff; font-size: 0.78rem;" onclick="fillTestTicket('FRAUD_DUPLICATE')">
-              🚨 ทดสอบ: สวมสิทธิ์ / บัตรเข้าแล้ว
+            <button type="button" class="ep-nav-btn" style="background: #0369a1; border-color: #0284c7; color: #fff; font-size: 0.78rem;" onclick="fillTestTicket('EXIT_DEMO')">
+              🚪 ทดสอบ: สแกนออกจากงาน (Exit)
             </button>
-            <button type="button" class="ep-nav-btn" style="background: #7f1d1d; border-color: #dc2626; color: #fff; font-size: 0.78rem;" onclick="fillTestTicket('VOID_TICKET')">
-              🚫 ทดสอบ: บัตรโมฆะ
+            <button type="button" class="ep-nav-btn" style="background: #0f766e; border-color: #14b8a6; color: #fff; font-size: 0.78rem;" onclick="fillTestTicket('RE_ENTRY_DEMO')">
+              🔄 ทดสอบ: สแกนเข้าซ้ำ (Re-entry Dual Face)
+            </button>
+            <button type="button" class="ep-nav-btn" style="background: #7f1d1d; border-color: #dc2626; color: #fff; font-size: 0.78rem;" onclick="fillTestTicket('FRAUD_DUPLICATE')">
+              🚨 สวมสิทธิ์ / ริสต์แบนด์ไม่ตรง
+            </button>
+            <button type="button" class="ep-nav-btn" style="background: #7f1d1d; border-color: #dc2626; color: #fff; font-size: 0.78rem;" onclick="fillTestTicket('FRAUD_ALREADY_INSIDE')">
+              🚨 สแกนเข้าซ้ำขณะอยู่ในงาน (แอบส่ง QR)
+            </button>
+            <button type="button" class="ep-nav-btn" style="background: #7f1d1d; border-color: #dc2626; color: #fff; font-size: 0.78rem; grid-column: 1 / -1;" onclick="fillTestTicket('VOID_TICKET')">
+              🚫 ทดสอบ: บัตรโมฆะ (Void Ticket)
             </button>
           </div>
         </div>
@@ -189,20 +278,56 @@
 
       <!-- GATE RUNNING STATS -->
       <div class="ep-card" style="padding: 16px;">
-        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; text-align: center;">
-          <div style="background: #0d1527; padding: 10px; border-radius: 8px;">
-            <div style="font-size: 0.75rem; color: var(--text-muted);">ผ่านเข้างานแล้ว</div>
-            <div style="font-size: 1.5rem; font-weight: 800; color: var(--accent-green);" id="statEnteredCount">0 คน</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; text-align: center;">
+          <div style="background: #0d1527; padding: 8px; border-radius: 8px;">
+            <div style="font-size: 0.72rem; color: var(--text-muted);">อยู่ในงานขณะนี้</div>
+            <div style="font-size: 1.4rem; font-weight: 800; color: var(--accent-green);" id="statEnteredCount">0 คน</div>
           </div>
-          <div style="background: #0d1527; padding: 10px; border-radius: 8px;">
-            <div style="font-size: 0.75rem; color: var(--text-muted);">ตรวจจับเหตุผิดปกติ</div>
-            <div style="font-size: 1.5rem; font-weight: 800; color: var(--accent-red);" id="statIncidentCount">0 ครั้ง</div>
+          <div style="background: #0d1527; padding: 8px; border-radius: 8px;">
+            <div style="font-size: 0.72rem; color: var(--text-muted);">ออกชั่วคราว</div>
+            <div style="font-size: 1.4rem; font-weight: 800; color: #38bdf8;" id="statExitedCount">0 คน</div>
           </div>
-          <div style="background: #0d1527; padding: 10px; border-radius: 8px;">
-            <div style="font-size: 0.75rem; color: var(--text-muted);">คงเหลือรอเข้า</div>
-            <div style="font-size: 1.5rem; font-weight: 800; color: var(--accent-cyan);" id="statRemainingCount">0 คน</div>
+          <div style="background: #0d1527; padding: 8px; border-radius: 8px;">
+            <div style="font-size: 0.72rem; color: var(--text-muted);">ตรวจจับเหตุผิดปกติ</div>
+            <div style="font-size: 1.4rem; font-weight: 800; color: var(--accent-red);" id="statIncidentCount">0 ครั้ง</div>
+          </div>
+          <div style="background: #0d1527; padding: 8px; border-radius: 8px;">
+            <div style="font-size: 0.72rem; color: var(--text-muted);">คงเหลือรอเข้า</div>
+            <div style="font-size: 1.4rem; font-weight: 800; color: var(--accent-cyan);" id="statRemainingCount">0 คน</div>
           </div>
         </div>
+      </div>
+    </section>
+
+    <!-- ========================================================================
+         BOTTOM SPAN: ACTIVE OUTSIDE ATTENDEES BOARD (กระดานคนอยู่นอกงานแบบ Auto-Remove)
+         ======================================================================== -->
+    <section class="ep-card" id="sectionActiveOutsideAttendees" style="grid-column: 1 / -1; margin-top: 10px; background: #0b1120; border: 1.5px solid #1e293b; border-radius: var(--radius-md); padding: 18px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 12px; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 1.35rem;">🚶‍♂️</span>
+          <div>
+            <h3 style="font-size: 1.1rem; font-weight: 800; color: #38bdf8; margin: 0;">
+              กระดานรายชื่อผู้ที่อยู่นอกงานขณะนี้ (Active Outside Attendees)
+            </h3>
+            <div style="font-size: 0.78rem; color: #94a3b8; margin-top: 2px;">
+              💡 แสดงผู้ที่สแกนออกชั่วคราว เรียงตามเวลาออกล่าสุด | เมื่อสแกนกลับเข้างาน (RE-ENTRY) รายชื่อจะวูบหายอัตโนมัติ 100%
+            </div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span id="outsideAttendeesCountBadge" class="ep-badge ep-badge-cyan" style="font-size: 0.95rem; font-weight: 800; padding: 4px 14px; border-radius: 9999px; background: rgba(56, 189, 248, 0.15); border: 1px solid #38bdf8; color: #38bdf8;">
+            0 คน
+          </span>
+          <button type="button" class="ep-nav-btn" onclick="renderActiveOutsideBoard()" style="background: #1e293b; border: 1px solid #334155; color: #cbd5e1; font-size: 0.8rem; padding: 5px 12px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font-weight: 700;">
+            🔄 รีเฟรชกระดาน
+          </button>
+        </div>
+      </div>
+
+      <!-- OUTSIDE ATTENDEES CONTAINER -->
+      <div id="outsideAttendeesList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; max-height: 420px; overflow-y: auto; padding-right: 4px;">
+        <!-- Dynamic Cards Injected Here -->
       </div>
     </section>
 
@@ -212,23 +337,32 @@
        GIANT SCREEN 1: BIG GREEN PASS SCREEN (จอเขียวผ่าน)
        ======================================================================== -->
   <div class="ep-result-overlay ep-result-pass" id="overlayPass">
-    <div class="ep-pass-icon">✓</div>
-    <h1 style="font-size: 2.8rem; font-weight: 900; margin-bottom: 6px; letter-spacing: 1px;">
+    <div class="ep-pass-icon" id="passOverlayIcon">✓</div>
+    <h1 style="font-size: 2.8rem; font-weight: 900; margin-bottom: 6px; letter-spacing: 1px;" id="passOverlayTitle">
       PASS - เข้างานได้
     </h1>
     <h2 style="font-size: 1.5rem; font-weight: 700; color: #d1fae5; margin-bottom: 20px;" id="passModeText">
       ยินดีต้อนรับเข้าสู่งานคอนเสิร์ต
     </h2>
 
-    <div style="background: rgba(0, 0, 0, 0.55); border-radius: var(--radius-md); padding: 20px; max-width: 550px; width: 100%; text-align: left; box-shadow: var(--shadow-lg);">
-      <div style="display: flex; gap: 16px; align-items: center;">
-        <img id="passFaceImg" src="" alt="Face" style="width: 100px; height: 100px; border-radius: 10px; border: 3px solid #10b981; object-fit: cover; background: #000;">
-        <div style="font-size: 1rem; line-height: 1.6;">
-          <div>ผู้ถือบัตร: <strong id="passAttendeeName" style="color: #fff; font-size: 1.25rem;">นายสมชาย ใจดี</strong></div>
-          <div>โซนที่นั่ง: <strong id="passTierName" style="color: var(--accent-gold);">VIP Front Row (Zone A)</strong></div>
-          <div>รหัสบัตร: <span id="passTicketId" style="font-family: monospace;">TKT-VIP-001</span></div>
-          <div>ริสต์แบนด์: <strong id="passWristbandId" style="color: var(--accent-cyan); font-family: monospace;">WB-1001</strong></div>
+    <div style="background: rgba(0, 0, 0, 0.55); border-radius: var(--radius-md); padding: 20px; max-width: 580px; width: 100%; text-align: left; box-shadow: var(--shadow-lg);">
+      <!-- DUAL / SINGLE FACE DISPLAY AREA -->
+      <div id="passFaceDualContainer" style="display: flex; gap: 18px; align-items: center; justify-content: center; margin-bottom: 14px;">
+        <div id="passFaceBoxFirst" style="display: none; text-align: center;">
+          <div style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 4px; font-weight: 700;">📸 รูปถ่ายลงทะเบียนแรก</div>
+          <img id="passFaceImgFirst" src="" alt="First Face" style="width: 105px; height: 105px; border-radius: 10px; border: 3px solid #38bdf8; object-fit: cover; background: #000; display: block;">
         </div>
+        <div id="passFaceBoxCurrent" style="text-align: center;">
+          <div id="passFaceCurrentLabel" style="font-size: 0.75rem; color: #34d399; margin-bottom: 4px; font-weight: 700;">📸 รูปถ่ายสดขณะนี้</div>
+          <img id="passFaceImg" src="" alt="Face" style="width: 105px; height: 105px; border-radius: 10px; border: 3px solid #10b981; object-fit: cover; background: #000; display: block;">
+        </div>
+      </div>
+
+      <div style="font-size: 1rem; line-height: 1.6; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px;">
+        <div>ผู้ถือบัตร: <strong id="passAttendeeName" style="color: #fff; font-size: 1.25rem;">นายสมชาย ใจดี</strong></div>
+        <div>โซนที่นั่ง: <strong id="passTierName" style="color: var(--accent-gold);">VIP Front Row (Zone A)</strong></div>
+        <div>รหัสบัตร: <span id="passTicketId" style="font-family: monospace;">TKT-VIP-001</span></div>
+        <div>ริสต์แบนด์: <strong id="passWristbandId" style="color: var(--accent-cyan); font-family: monospace;">WB-1001</strong></div>
       </div>
     </div>
 
@@ -277,14 +411,44 @@
     </button>
   </div>
 
+  <!-- ========================================================================
+       MODAL: QUICK TICKET SELECTOR (ตัวเลือกตั๋วที่มีในระบบเพื่อทดสอบ)
+       ======================================================================== -->
+  <div class="ep-modal-backdrop" id="modalQuickTickets" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 9999; align-items: center; justify-content: center; padding: 20px;">
+    <div class="ep-card" style="max-width: 760px; width: 100%; max-height: 88vh; display: flex; flex-direction: column; background: #0f172a; border: 1px solid #334155; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.75);">
+      <div class="ep-card-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 12px;">
+        <div class="ep-card-title" style="font-size: 1.1rem; color: #38bdf8; display: flex; align-items: center; gap: 8px;">
+          <span>🎫 เลือกตั๋วในระบบเพื่อทดสอบสแกนเข้างาน (พร้อม QR Code คมชัด)</span>
+        </div>
+        <button type="button" onclick="closeQuickTicketModal()" style="background: transparent; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer; line-height: 1;">&times;</button>
+      </div>
+
+      <div style="font-size: 0.85rem; color: #94a3b8; margin: 10px 0 6px 0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+        <span>📱 สแกน QR ได้จากหน้าจอ | คลิก <strong>[ 👈 เลือกรหัสนี้ ]</strong> เพื่อดึงลงฟอร์ม หรือ <strong>[ ⚡ สแกนเข้าทันที ]</strong> ใน 1 คลิกค่ะ</span>
+      </div>
+
+      <div id="quickTicketsListContainer" style="overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; margin-top: 8px;">
+        <!-- Dynamic Ticket Rows Injected Here -->
+      </div>
+
+      <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #334155; display: flex; justify-content: flex-end;">
+        <button type="button" class="ep-nav-btn" onclick="closeQuickTicketModal()" style="background: #334155; color: #fff; border: none; padding: 8px 18px; border-radius: 6px; cursor: pointer; font-weight: 700;">
+          ปิดหน้าต่าง
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- CORE SCRIPTS -->
-  <script src="js/qrcode.min.js"></script>
-  <script src="js/audioAlertEngine.js"></script>
-  <script src="js/hardwareBridge.js"></script>
-  <script src="js/db.js"></script>
-  <script src="js/firebaseAdapter.js"></script>
-  <script src="js/authGuard.js"></script>
-  <script src="js/gate.js"></script>
+  <script src="js/jsQR.min.js?v=20261024_0100"></script>
+  <script src="js/zxing.min.js?v=20261024_0100"></script>
+  <script src="js/qrcode.min.js?v=20261024_0100"></script>
+  <script src="js/audioAlertEngine.js?v=20261024_0100"></script>
+  <script src="js/hardwareBridge.js?v=20261024_0100"></script>
+  <script src="js/db.js?v=20261024_0100"></script>
+  <script src="js/firebaseAdapter.js?v=20261024_0100"></script>
+  <script src="js/authGuard.js?v=20261024_0100"></script>
+  <script src="js/gate.js?v=20261024_0100"></script>
   <script>
     function initDropdowns() {
       document.addEventListener('click', (e) => {
