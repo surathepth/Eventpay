@@ -103,23 +103,24 @@
     const step3Title = document.getElementById('bookingStep3Title');
     const btnSubmit = document.getElementById('btnSubmitBooking');
 
+    // [POINT 1]: แสดงพื้นที่แนบสลิปเสมอ เพื่อให้ลูกค้าแนบสลิปเพื่อรับตั๋วทันที 1.5 วินาที
+    if (legacySlipArea) legacySlipArea.style.display = 'block';
+
     if (mode === 'system_c') {
-      if (legacySlipArea) legacySlipArea.style.display = 'none';
       if (zeroSlipRadar) zeroSlipRadar.style.display = 'block';
-      if (step3Title) step3Title.textContent = 'ชำระเงินผ่านพร้อมเพย์ (Auto Zero-Slip)';
+      if (step3Title) step3Title.textContent = 'ชำระเงินผ่านพร้อมเพย์ / แนบสลิปรับตั๋วทันที';
       if (btnSubmit) {
-        btnSubmit.innerHTML = '⚡ ยืนยันการจองและเริ่มตรวจจับเงินเข้าอัตโนมัติ';
+        btnSubmit.innerHTML = attachedSlipBase64 ? '⚡ ยืนยันและรับตั๋ว QR ทันที (ตรวจพบสลิปแนบ)' : '⚡ ยืนยันการจองและรับตั๋ว e-Ticket ทันที';
         btnSubmit.style.background = 'linear-gradient(135deg, #059669 0%, #10b981 100%)';
         btnSubmit.style.boxShadow = '0 4px 18px rgba(16, 185, 129, 0.4)';
       }
     } else {
-      if (legacySlipArea) legacySlipArea.style.display = 'block';
       if (zeroSlipRadar) zeroSlipRadar.style.display = 'none';
       if (step3Title) step3Title.textContent = 'ชำระเงินและแนบสลิป';
       if (btnSubmit) {
-        btnSubmit.innerHTML = '⚡ ยืนยันการจองและส่งสลิปให้ฝ่ายการเงินตรวจสอบ';
-        btnSubmit.style.background = 'linear-gradient(135deg, #d97706 0%, #f59e0b 100%)';
-        btnSubmit.style.boxShadow = '0 4px 18px rgba(245, 158, 11, 0.4)';
+        btnSubmit.innerHTML = '⚡ ยืนยันการจองและรับตั๋ว e-Ticket ทันที';
+        btnSubmit.style.background = 'linear-gradient(135deg, #059669 0%, #10b981 100%)';
+        btnSubmit.style.boxShadow = '0 4px 18px rgba(16, 185, 129, 0.4)';
       }
     }
   }
@@ -871,34 +872,35 @@
     if (bankRef && bankRefInput) bankRefInput.style.borderColor = '';
     if (attachedSlipBase64 && uploadZone) uploadZone.style.borderColor = '#10b981';
 
-    const isReady = isSystemC
-      ? (count > 0 && total > 0 && Boolean(name) && Boolean(phone))
-      : (count > 0 && total > 0 && Boolean(name) && Boolean(phone) && Boolean(bankRef) && Boolean(attachedSlipBase64));
+    const hasSlip = Boolean(attachedSlipBase64);
+    const isReady = (count > 0 && total > 0 && Boolean(name) && Boolean(phone));
 
     if (btn) {
-      if (isReady) {
+      if (hasSlip) {
+        btn.innerHTML = '⚡ ยืนยันและรับตั๋ว QR ทันที (ตรวจพบสลิปแนบ)';
+        btn.style.background = 'linear-gradient(135deg, #059669 0%, #10b981 100%)';
+        btn.style.boxShadow = '0 4px 22px rgba(16, 185, 129, 0.7)';
         btn.style.opacity = '1';
-        btn.style.boxShadow = isSystemC ? '0 4px 22px rgba(16, 185, 129, 0.7)' : '0 4px 22px rgba(245, 158, 11, 0.7)';
       } else {
-        btn.style.opacity = '0.9';
-        btn.style.boxShadow = isSystemC ? '0 4px 14px rgba(16, 185, 129, 0.3)' : '0 4px 14px rgba(245, 158, 11, 0.3)';
+        btn.innerHTML = '⚡ ยืนยันการจองและรับตั๋ว e-Ticket ทันที';
+        btn.style.background = 'linear-gradient(135deg, #0284c7 0%, #38bdf8 100%)';
+        btn.style.boxShadow = isReady ? '0 4px 18px rgba(56, 189, 248, 0.5)' : '0 4px 14px rgba(56, 189, 248, 0.25)';
+        btn.style.opacity = isReady ? '1' : '0.9';
       }
     }
 
     if (notice) {
       if (isReady) {
-        notice.innerHTML = isSystemC
-          ? '<span style="color: #34d399; font-weight: 700;">✅ ข้อมูลครบถ้วน สแกน QR ด้านบน และกดยืนยันเพื่อออกตั๋วอัตโนมัติ</span>'
-          : '<span style="color: #10b981; font-weight: 700;">✅ ข้อมูลครบถ้วน พร้อมส่งสลิปให้ฝ่ายการเงินตรวจสอบค่ะ</span>';
+        if (hasSlip) {
+          notice.innerHTML = '<span style="color: #34d399; font-weight: 700;">✅ แนบรูปสลิปแล้ว กดยืนยันเพื่อรับตั๋ว QR Code และใบเสร็จทันทีใน 1.5 วินาที</span>';
+        } else {
+          notice.innerHTML = '<span style="color: #38bdf8; font-weight: 700;">✅ ข้อมูลครบถ้วน (แนบรูปสลิปเพื่อรับตั๋วทันที หรือกดยืนยันเพื่อตรวจจับเงินเข้าอัตโนมัติ)</span>';
+        }
       } else {
         const missing = [];
         if (count === 0) missing.push('เลือกประเภทบัตร');
         if (!name) missing.push('ชื่อ-นามสกุลผู้ซื้อ');
         if (!phone) missing.push('เบอร์โทรศัพท์');
-        if (!isSystemC) {
-          if (!attachedSlipBase64) missing.push('แนบรูปสลิป');
-          if (!bankRef) missing.push('เลขที่อ้างอิงสลิป');
-        }
         notice.innerHTML = `<span style="color: #fbbf24; font-size: 0.82rem;">⚠️ รอข้อมูล: ${missing.join(', ')}</span>`;
       }
     }
@@ -1016,29 +1018,8 @@
       return;
     }
 
+    const hasSlip = Boolean(attachedSlipBase64);
     const isSystemC = (currentPaymentConfig && currentPaymentConfig.mode === 'system_c');
-
-    if (!isSystemC) {
-      if (!attachedSlipBase64) {
-        alert('⚠️ กรุณาแนบรูปภาพสลิปโอนเงิน เพื่อให้ฝ่ายบัญชีตรวจสอบยอดเงินเข้าค่ะ\n(หรือกดปุ่ม "⚡ จำลองแนบสลิปทดสอบ" เพื่อทดสอบความรวดเร็ว)');
-        if (uploadZone) {
-          uploadZone.style.borderColor = '#ef4444';
-          uploadZone.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-        if (notice) notice.innerHTML = '<span style="color: #ef4444; font-weight: 700;">❌ กรุณาแนบรูปภาพสลิปโอนเงิน</span>';
-        return;
-      }
-
-      if (!bankRef) {
-        alert('⚠️ กรุณากรอกเลขที่อ้างอิงสลิปธนาคาร (เช่น รหัสอ้างอิงการโอนเงิน) ก่อนนะคะ');
-        if (bankRefInput) {
-          bankRefInput.style.borderColor = '#ef4444';
-          bankRefInput.focus();
-        }
-        if (notice) notice.innerHTML = '<span style="color: #ef4444; font-weight: 700;">❌ กรุณากรอกเลขที่อ้างอิงสลิปธนาคาร</span>';
-        return;
-      }
-    }
 
     // รวบรวมรายชื่อผู้เข้าชม
     const attendeeInputs = document.querySelectorAll('.booking-attendee-input');
@@ -1069,8 +1050,12 @@
     });
 
     const effectiveTotal = isSystemC ? getEffectiveTotal(total) : total;
-    const finalBankRef = isSystemC ? ('AUTO-PROMPTPAY-' + Date.now().toString().slice(-6)) : bankRef;
-    const finalSlipUrl = isSystemC ? '' : (attachedSlipBase64 || '');
+    const finalBankRef = bankRef || (hasSlip ? ('SLIP-' + Date.now().toString().slice(-8)) : ('AUTO-PROMPTPAY-' + Date.now().toString().slice(-6)));
+    const finalSlipUrl = attachedSlipBase64 || '';
+
+    // [POINT 2]: หากมีสลิปแนบ BotAdmin ตรวจพบและอนุมัติทันที (requires_verification: false) ออกตั๋วใน 1.5 วินาที
+    // หากไม่มีสลิปแนบ (Zero-Slip) requires_verification: true เพื่อรอสัญญาณจากธนาคาร/Open API
+    const requiresVerification = !hasSlip;
 
     const orderData = {
       customer_name: custName,
@@ -1079,7 +1064,7 @@
       shift_id: 'SHIFT-ONLINE-SELF',
       bank_ref: finalBankRef,
       slip_url: finalSlipUrl,
-      requires_verification: true,
+      requires_verification: requiresVerification,
       items: items
     };
 
@@ -1099,7 +1084,23 @@
         }).catch(e => console.warn('[Booking] Server order sync non-blocking error:', e));
       } catch (eSync) {}
 
-      if (isSystemC) {
+      if (hasSlip) {
+        // [POINT 2]: BotAdmin ตรวจพบสลิปแนบ -> เจนตั๋ว QR Code และใบเสร็จทางการทันทีใน 1.5 วินาที
+        const btn = document.getElementById('btnSubmitBooking');
+        if (btn) {
+          btn.innerHTML = '🤖 BotAdmin ตรวจพบสลิป กำลังออกตั๋ว QR Code และใบเสร็จใน 1.5 วินาที...';
+          btn.disabled = true;
+        }
+        if (notice) {
+          notice.innerHTML = '<span style="color: #34d399; font-weight: 700;">🤖 BotAdmin ตรวจพบสลิปแนบ กำลังสร้างตั๋ว QR Code และใบเสร็จทางการให้อัตโนมัติ</span>';
+        }
+
+        setTimeout(() => {
+          handlePaymentSuccessAuto(result.order.order_id);
+        }, 1200);
+
+      } else if (isSystemC) {
+        // ไม่มีสลิปแนบ -> รอระบบตรวจจับเงินเข้าอัตโนมัติ (Zero-Slip / Bank Open API)
         if (effectiveTotal !== total) {
           EventPayDB.update('orders', result.order.order_id, { total_amount: effectiveTotal });
           const p = EventPayDB.getAll('payments', p => p.order_id === result.order.order_id)[0];
@@ -1110,11 +1111,11 @@
 
         const btn = document.getElementById('btnSubmitBooking');
         if (btn) {
-          btn.innerHTML = '🟢 ระบบกำลังรอตรวจจับเงินเข้าอัตโนมัติ (1.5 วินาที)...';
+          btn.innerHTML = '🟢 ระบบกำลังรอตรวจจับเงินเข้าอัตโนมัติ...';
           btn.disabled = true;
         }
         if (notice) {
-          notice.innerHTML = '<span style="color: #34d399; font-weight: 700;">📡 บันทึกคำสั่งซื้อแล้ว ระบบกำลังรอตรวจจับเงินเข้าจากแอปธนาคารอัตโนมัติ</span>';
+          notice.innerHTML = '<span style="color: #34d399; font-weight: 700;">📡 บันทึกคำสั่งซื้อแล้ว ระบบกำลังรอตรวจจับเงินเข้าจากบัญชีธนาคาร</span>';
         }
 
         if (systemCPollingInterval) clearInterval(systemCPollingInterval);

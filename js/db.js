@@ -137,6 +137,18 @@
           sse.onmessage = (event) => {
             try {
               const parsed = JSON.parse(event.data);
+              // [POINT 4 & 5]: อัปเดตสถานะโมฆะลงฐานข้อมูลท้องถิ่นทันทีเมื่อได้รับ Broadcast จาก Master Server
+              if (parsed.event === 'TICKET_VOIDED' && parsed.data && parsed.data.orderId) {
+                const targetOid = parsed.data.orderId;
+                this.update('orders', targetOid, { payment_status: 'VOID' });
+                const orderTkts = this.getAll('tickets', t => t.order_id === targetOid);
+                orderTkts.forEach(t => this.update('tickets', t.ticket_id, { is_void: true }));
+              } else if (parsed.event === 'PAYMENT_CONFIRMED' && parsed.data && parsed.data.orderId) {
+                const targetOid = parsed.data.orderId;
+                this.update('orders', targetOid, { payment_status: 'PAID' });
+                const orderTkts = this.getAll('tickets', t => t.order_id === targetOid);
+                orderTkts.forEach(t => this.update('tickets', t.ticket_id, { is_void: false }));
+              }
               this.syncListeners.forEach(fn => {
                 try { fn(parsed); } catch (e) {}
               });
@@ -574,8 +586,25 @@
         { tier_id: 'TIER-VIP', name: 'VIP Front Row (Zone A)', price: 2000.00, quota: 500, sold: 0 },
         { tier_id: 'TIER-REG', name: 'Regular Seated (Zone B)', price: 1500.00, quota: 2000, sold: 0 },
         { tier_id: 'TIER-STD', name: 'General Standing (Zone C)', price: 1200.00, quota: 5000, sold: 0 },
-        { tier_id: 'TIER-GEN', name: 'ทั่วไป', price: 1000.00, quota: 1000, sold: 0 }
+        { tier_id: 'TIER-GEN', name: 'ทั่วไป', price: 1000.00, quota: 1000, sold: 0 },
+        { tier_id: 'TIER-TEST-5', name: 'บัตรทดสอบโอนจริง 5 บาท (KBank)', price: 5.00, quota: 500, sold: 0 },
+        { tier_id: 'TIER-TEST-1', name: 'บัตรทดสอบโอนจริง 1 บาท (KBank)', price: 1.00, quota: 500, sold: 0 }
       ];
+
+      // ตรวจสอบและเติมบัตรทดสอบโอนจริง 1 บาท และ 5 บาท หากยังไม่มีในระบบ
+      let tiersModified = false;
+      ['TIER-TEST-5', 'TIER-TEST-1'].forEach(testId => {
+        if (!tiers.find(t => t.tier_id === testId)) {
+          const off = officialTiers.find(o => o.tier_id === testId);
+          if (off) {
+            tiers.push({ ...off });
+            tiersModified = true;
+          }
+        }
+      });
+      if (tiersModified) {
+        this._saveCollection('ticket_tiers', tiers);
+      }
 
       // ตรวจสอบว่ามีราคาผิดเพี้ยนรุ่นเก่าหรือไม่ (VIP === 5000 หรือ REG === 2500 หรือขาด TIER-GEN)
       const vip = tiers.find(t => t.tier_id === 'TIER-VIP');

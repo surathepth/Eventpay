@@ -262,6 +262,49 @@ const server = http.createServer(async (req, res) => {
   }
 
   // --------------------------------------------------------------------------
+  // 4.0. API: ยกเลิกคำสั่งซื้อเป็นโมฆะ / ระงับสลิปปลอม (Order Void & Fake Slip Cancellation)
+  // --------------------------------------------------------------------------
+  if ((pathname === '/api/orders/void' || pathname === '/api/orders/reject') && method === 'POST') {
+    try {
+      const body = await parseRequestBody(req);
+      const { orderId, paymentId, reason, verifierId } = body;
+
+      let pId = paymentId;
+      if (!pId && orderId) {
+        const p = EventPayDB.getAll('payments').find(x => x.order_id === orderId);
+        pId = p ? p.payment_id : null;
+      }
+
+      let updatedPayment = null;
+      if (pId && typeof EventPayDB.rejectPayment === 'function') {
+        updatedPayment = EventPayDB.rejectPayment(pId, verifierId || 'ADMIN-FINANCE', reason || 'สลิปปลอม / ยอดเงินไม่เข้าสเตทเมนต์');
+      } else if (orderId) {
+        EventPayDB.update('orders', orderId, { payment_status: 'VOID' });
+        const tickets = EventPayDB.getAll('tickets', t => t.order_id === orderId);
+        tickets.forEach(t => EventPayDB.update('tickets', t.ticket_id, { is_void: true }));
+        EventPayDB._recordIncident('FAKE_SLIP', null, null, 'FINANCE-ADMIN', '', `ระงับคำสั่งซื้อ ${orderId} (เหตุผล: ${reason || 'สลิปปลอม'})`);
+      }
+      saveMasterDbToFile();
+
+      // Broadcast สดให้ทุกหน้าจอ Kiosk และ Admin ทราบสถานะโมฆะทันที
+      broadcastEvent('TICKET_VOIDED', {
+        orderId,
+        paymentId: pId,
+        reason: reason || 'สลิปปลอม / ยอดเงินไม่เข้าบัญชี',
+        time: new Date().toISOString()
+      });
+
+      console.log(`🚨 [Order Voided]: คำสั่งซื้อ ${orderId} ถูกระงับเป็นโมฆะเรียบร้อยแล้ว (เหตุผล: ${reason || 'สลิปปลอม'})`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, orderId, message: 'Order voided and tickets locked successfully' }));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, message: err.message }));
+    }
+    return;
+  }
+
+  // --------------------------------------------------------------------------
   // 4.1. API: ตั้งค่าและดึงสถานะ Payment Mode (Dual-Mode: System C vs Legacy)
   // --------------------------------------------------------------------------
   if (pathname === '/api/payment/config' && method === 'GET') {
@@ -350,6 +393,36 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: false, message: result.message }));
       }
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, message: err.message }));
+    }
+    return;
+  }
+
+  // --------------------------------------------------------------------------
+  // 4.2.1. API: Bank Open API Webhook Endpoint (Direct Bank Integration)
+  // --------------------------------------------------------------------------
+  if (pathname === '/api/bank/openapi/callback' && method === 'POST') {
+    try {
+      const body = await parseRequestBody(req);
+      const { amount, order_id, bank, timestamp, bank_ref, sender_name, raw_message } = body;
+
+      const paymentData = {
+        amount: (amount !== undefined && amount !== null && amount !== '') ? parseFloat(amount) : undefined,
+        order_id: order_id || undefined,
+        bank: bank || 'BANK-OPENAPI',
+        timestamp: timestamp || new Date().toISOString(),
+        bank_ref: bank_ref || undefined,
+        sender_name: sender_name || undefined,
+        raw_message: raw_message || JSON.stringify(body)
+      };
+
+      console.log(`🏦 [Bank Open API Webhook]: รับสัญญาณเงินเข้าจากธนาคาร: ฿${paymentData.amount} (Ref: ${paymentData.bank_ref || '-'})`);
+      const result = processBankPaymentConfirmation(paymentData, 'BANK-OPENAPI-WEBHOOK');
+
+      res.writeHead(result.success ? 200 : 400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: false, message: err.message }));
@@ -502,11 +575,42 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
+// ฟังก์ชันกลางประมวลผลการยืนยันการรับเงินโอนธนาคาร (รองรับ Email Alert Reader และระบบอัตโนมัติ)
+function processBankPaymentConfirmation(paymentData, source = 'AUTO-BOT-EMAIL-READER') {
+  const criteria = {
+    order_id: paymentData.order_id || undefined,
+    amount: paymentData.amount,
+    bank_ref: paymentData.bank_ref,
+    sender_name: paymentData.sender_name,
+    bank: paymentData.bank || 'KBANK'
+  };
+
+  const result = EventPayDB.autoConfirmPromptPayPayment(criteria, source);
+  if (result.success) {
+    saveMasterDbToFile();
+    // Broadcast สัญญาณสด ปลดล็อกหน้าจอลูกค้า และส่งเสียงเตือน Admin ทันที
+    broadcastEvent('PAYMENT_CONFIRMED', {
+      orderId: result.order.order_id,
+      amount: result.order.total_amount,
+      customerName: result.order.customer_name,
+      customerPhone: result.order.customer_phone,
+      bankRef: result.order.bank_ref,
+      tickets: result.tickets,
+      time: new Date().toISOString()
+    });
+    console.log(`🎉 [Payment Confirmed]: ออเดอร์ ${result.order.order_id} ยอด ฿${result.order.total_amount} ปลดล็อก ${result.tickets.length} ตั๋วสำเร็จ! (Ref: ${result.order.bank_ref})`);
+  } else {
+    console.warn(`⚠️ [Payment Match Pending]: ${result.message}`);
+  }
+  return result;
+}
+
 // เริ่มต้นโหลด Master DB
 loadMasterDbFromFile();
 
-// เริ่มต้นรันเซิร์ฟเวอร์
-server.listen(PORT, '0.0.0.0', () => {
+// เริ่มต้นรันเซิร์ฟเวอร์ (เฉพาะเมื่อรันไฟล์นี้โดยตรง)
+if (require.main === module) {
+  server.listen(PORT, '0.0.0.0', () => {
   const lanIps = getLanIpAddresses();
   console.log('\n======================================================================');
   console.log('🚀 [EVENTPAY LOCAL MASTER HUB]: เครื่องแม่ข่ายหน้างานคอนเสิร์ตเปิดทำงานแล้ว!');
@@ -531,6 +635,18 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log('⚠️ ไม่พบการเชื่อมต่อเครือข่าย LAN/WiFi กรุณาตรวจสอบเราเตอร์');
   }
   console.log('======================================================================\n');
-});
 
-module.exports = { server, broadcastEvent };
+  // เริ่มต้นโมดูล Bank Email Alert Reader (KBank / PromptPay ผ่าน Gmail srisarakhams@gmail.com)
+  try {
+    const { startEmailListener } = require('./emailBankListener');
+    startEmailListener(null, (paymentData) => {
+      console.log(`📬 [Master Server Event]: ได้รับสัญญาณเงินเข้าจาก Email Reader: ฿${paymentData.amount.toFixed(2)} | Ref: ${paymentData.bank_ref} | ธนาคาร: ${paymentData.bank}`);
+      processBankPaymentConfirmation(paymentData, 'AUTO-BOT-EMAIL-READER');
+    });
+  } catch (err) {
+    console.warn(`⚠️ ไม่สามารถเริ่ม Email Bank Listener: ${err.message}`);
+  }
+});
+}
+
+module.exports = { server, broadcastEvent, processBankPaymentConfirmation };

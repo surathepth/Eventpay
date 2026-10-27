@@ -401,10 +401,13 @@
                 🎟️ ดูตั๋ว QR (${ticketCount} ใบ)
               </button>
               ${slipSrc ? `
-                <button type="button" class="ep-nav-btn" style="font-size: 0.72rem; padding: 4px 8px;" onclick="openSlipInspection('${o.order_id}', '${payment ? payment.payment_id : ''}')">
-                  🖼️ ดูสลิป
+                <button type="button" class="ep-nav-btn" style="font-size: 0.72rem; padding: 4px 8px; background: #0284c7; color: #fff; font-weight: 700;" onclick="openSlipInspection('${o.order_id}', '${payment ? payment.payment_id : ''}')">
+                  📷 ดูรูปสลิปแนบ
                 </button>
               ` : ''}
+              <button type="button" class="ep-nav-btn" style="font-size: 0.72rem; padding: 4px 8px; background: rgba(239, 68, 68, 0.2); border-color: #ef4444; color: #fca5a5; font-weight: 700;" onclick="rejectTransferOrder('${o.order_id}', '${payment ? payment.payment_id : ''}')">
+                🚨 สลิปปลอม / ยกเลิกโมฆะ
+              </button>
             </div>
           `;
         } else if (o.payment_status === 'VOID') {
@@ -1190,7 +1193,16 @@
               🚨 สลิปปลอม / ระงับคำสั่งซื้อ
             </button>
           </div>
-        ` : ''}
+        ` : (order && order.payment_status === 'PAID' ? `
+          <div style="margin-top: 14px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+            <button type="button" class="ep-nav-btn" style="padding: 10px 18px; font-size: 0.9rem; background: #0284c7; color: #fff; font-weight: 700;" onclick="closeModal('modalPhotoZoom'); openOrderTicketsModal('${orderId}');">
+              🎟️ ดูตั๋ว QR ที่ระบบเจนไปแล้ว
+            </button>
+            <button type="button" class="ep-nav-btn" style="padding: 10px 18px; font-size: 0.9rem; background: #ef4444; color: #fff; font-weight: 700;" onclick="rejectTransferOrder('${orderId}', '${payment ? payment.payment_id : ''}', true)">
+              🚨 สลิปปลอม / ยกเลิกเป็นบัตรโมฆะ
+            </button>
+          </div>
+        ` : '')}
       `;
     }
     if (modal) modal.classList.add('show');
@@ -1245,6 +1257,18 @@
       tickets.forEach(t => EventPayDB.update('tickets', t.ticket_id, { is_void: true }));
       EventPayDB.logAudit('REJECT_ORDER', 'FINANCE', `ระงับคำสั่งซื้อ ${orderId} เหตุผล: ${reason}`, currentUser);
     }
+
+    // [INSERT ACTIVE MODERN LOGIC]: ซิงก์คำสั่ง Void ไปยัง Master Server ทันที เพื่อกระจาย SSE ไปยังทุก Kiosk หน้าประตู
+    try {
+      const apiUrl = (typeof EventPayDB !== 'undefined' && typeof EventPayDB.getApiUrl === 'function')
+        ? EventPayDB.getApiUrl('/api/orders/void')
+        : ((typeof window !== 'undefined' && window.location.protocol === 'file:') ? 'http://localhost:8080/api/orders/void' : '/api/orders/void');
+      fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, paymentId, reason, verifierId: currentUser })
+      }).catch(e => console.warn('[Admin] Server void sync non-blocking error:', e));
+    } catch (eSync) {}
 
     alert(`🚨 ระงับคำสั่งซื้อ ${orderId} เรียบร้อยแล้ว!\nบัตรคอนเสิร์ตทั้งหมดถูกล็อกเป็นโมฆะ หากผู้ต้องสงสัยนำไปสแกนที่ Kiosk หน้าประตู ระบบจะลั่นไซเรนเตือนภัยทันทีค่ะ`);
 

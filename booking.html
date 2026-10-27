@@ -1010,7 +1010,7 @@
         <section class="ep-step-card ep-sticky-payment">
           <div class="ep-step-header">
             <div class="ep-step-num">3</div>
-            <div class="ep-step-title" id="bookingStep3Title">ชำระเงินผ่านพร้อมเพย์ (Auto Zero-Slip)</div>
+            <div class="ep-step-title" id="bookingStep3Title">ชำระเงินผ่านพร้อมเพย์ / แนบสลิปรับตั๋วทันที</div>
           </div>
 
           <div class="ep-promptpay-box">
@@ -1038,8 +1038,8 @@
               <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 4px;">
                 ⏱️ สแกนจ่ายภายใน: <strong id="zeroSlipCountdownTimer" style="font-family: monospace; font-size: 1.05rem; color: var(--accent-gold);">03:00</strong> นาที
               </div>
-              <div style="font-size: 0.74rem; color: #38bdf8; margin-top: 4px;">
-                ✨ ไม่ต้องส่งสลิป โอนยอดเงินเต็มจำนวน ระบบตรวจจับเงินเข้าและออกตั๋วพร้อมใบเสร็จทางการให้อัตโนมัติใน 1.5 วินาที
+              <div style="font-size: 0.76rem; color: #38bdf8; margin-top: 4px;">
+                💡 โอนเงินแล้วแนบรูปสลิปด้านล่าง BotAdmin จะตรวจจับและออกตั๋วพร้อมใบเสร็จทางการให้อัตโนมัติใน 1.5 วินาที!
               </div>
               <!-- DEV SIMULATION BOX: HIDDEN IN LIVE PRODUCTION MODE, SHOWN ONLY IN TEST MODE (Alt+T or ?mode=test) -->
               <div id="bookingDevSimulateBox" style="display: none; margin-top: 10px; padding: 8px; background: rgba(245, 158, 11, 0.08); border: 1px dashed rgba(245, 158, 11, 0.35); border-radius: 6px;">
@@ -1053,11 +1053,14 @@
             </div>
           </div>
 
-          <!-- SLIP ATTACHMENT & VERIFICATION (LEGACY SLIP WORKFLOW - SHOWN ONLY IN LEGACY MODE) -->
-          <div id="bookingLegacySlipArea" class="ep-slip-box">
-            <label class="ep-form-label" style="font-size: 0.92rem; color: #fff; margin-bottom: 8px;">
-              📸 แนบรูปภาพสลิปโอนเงิน (จากแอปธนาคาร) <span class="text-red">*</span>
-            </label>
+          <!-- SLIP ATTACHMENT & INSTANT BOT VERIFICATION -->
+          <div id="bookingLegacySlipArea" class="ep-slip-box" style="margin-top: 14px; border: 1.5px solid rgba(56, 189, 248, 0.4); border-radius: 10px; padding: 14px; background: rgba(15, 23, 42, 0.65);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+              <label class="ep-form-label" style="font-size: 0.95rem; color: #38bdf8; margin-bottom: 0; font-weight: 700;">
+                📸 แนบรูปภาพสลิปโอนเงิน (รับตั๋วทันที 1.5 วินาที)
+              </label>
+              <span style="font-size: 0.72rem; background: rgba(16, 185, 129, 0.2); color: #34d399; padding: 2px 8px; border-radius: 4px; font-weight: 600;">⚡ Instant QR Ticket</span>
+            </div>
 
             <!-- Hidden File Input for Real Slip Upload -->
             <input type="file" id="bookingSlipFileInput" accept="image/*" style="display: none;" onchange="handleSlipFileSelect(event)">
@@ -1065,8 +1068,8 @@
             <!-- Dropzone / Click to Upload Button -->
             <div id="bookingSlipUploadZone" style="border: 2px dashed #38bdf8; border-radius: 8px; padding: 14px; text-align: center; background: rgba(56, 189, 248, 0.06); cursor: pointer; transition: all 0.2s ease;" onclick="document.getElementById('bookingSlipFileInput').click()">
               <div style="font-size: 1.8rem; margin-bottom: 4px;">📷</div>
-              <div style="font-size: 0.92rem; font-weight: 700; color: #38bdf8;">คลิกเพื่อแนบรูปภาพสลิปโอนเงิน</div>
-              <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">รองรับไฟล์รูปภาพ JPG, PNG (ระบบจะบีบอัดรูปภาพให้อัตโนมัติ)</div>
+              <div style="font-size: 0.92rem; font-weight: 700; color: #38bdf8;">คลิกหรือแตะเพื่อแนบรูปภาพสลิปโอนเงิน</div>
+              <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">รองรับไฟล์รูปภาพ JPG, PNG (ระบบจะบีบอัดรูปภาพให้อัตโนมัติในเครื่อง)</div>
             </div>
 
             <!-- SLIP PREVIEW CONTAINER -->
@@ -1083,17 +1086,13 @@
               </div>
             </div>
 
-            <!-- BANK REF INPUT -->
-            <div style="margin-top: 14px;">
-              <label class="ep-form-label" style="font-size: 0.88rem; color: #fff; margin-bottom: 6px;">
-                📄 เลขอ้างอิงสลิปธนาคาร (Bank Ref No.) <span class="text-red">*</span>
+            <!-- BANK REF INPUT (OPTIONAL HELPER) -->
+            <div style="margin-top: 12px;">
+              <label class="ep-form-label" style="font-size: 0.84rem; color: #cbd5e1; margin-bottom: 4px;">
+                📄 เลขอ้างอิงสลิปธนาคาร (Bank Ref No. - ถ้ามี)
               </label>
-
-              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                <input type="text" id="bookingBankRefInput" class="ep-input" style="flex: 1; min-width: 180px;" placeholder="กรอกเลขอ้างอิงสลิป 18-25 หลัก">
-                <button type="button" class="ep-nav-btn" style="background: #0284c7; color: #fff; padding: 10px 14px; font-weight: 700;" onclick="simulateFastSlip()">
-                  ⚡ สลิปจำลอง
-                </button>
+              <div>
+                <input type="text" id="bookingBankRefInput" class="ep-input" style="width: 100%; font-size: 0.85rem;" placeholder="กรอกเลขอ้างอิงสลิป หรือปล่อยว่างเพื่อให้ระบบดึงอัตโนมัติ">
               </div>
               <div id="bookingSlipStatus" style="font-size: 0.82rem; margin-top: 6px; color: var(--accent-gold); font-weight: 600;"></div>
             </div>
@@ -1101,8 +1100,8 @@
 
           <!-- SUBMIT BUTTON -->
           <div style="margin-top: 20px;">
-            <button type="button" id="btnSubmitBooking" class="ep-btn-submit" style="padding: 16px; font-size: 1.15rem; width: 100%; box-shadow: 0 4px 18px rgba(245, 158, 11, 0.4);" onclick="submitBookingOrder()">
-              ⚡ ยืนยันการจองและส่งสลิปให้ฝ่ายการเงินตรวจสอบ
+            <button type="button" id="btnSubmitBooking" class="ep-btn-submit" style="padding: 16px; font-size: 1.15rem; width: 100%; box-shadow: 0 4px 18px rgba(16, 185, 129, 0.4); background: linear-gradient(135deg, #059669 0%, #10b981 100%);" onclick="submitBookingOrder()">
+              ⚡ ยืนยันการจองและรับตั๋ว e-Ticket ทันที
             </button>
             <div id="bookingValidationNotice" style="margin-top: 10px; font-size: 0.88rem; text-align: center; min-height: 22px;"></div>
           </div>
