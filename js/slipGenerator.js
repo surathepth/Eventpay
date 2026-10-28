@@ -475,16 +475,50 @@
   SlipGenerator.downloadCanvasAsImage = function (canvas, filename) {
     if (!canvas) return;
     try {
-      const dataUrl = canvas.toDataURL('image/png', 1.0);
-      const a = document.createElement('a');
-      a.href = dataUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      if (canvas.toBlob) {
+        canvas.toBlob(blob => {
+          if (!blob) {
+            const dataUrl = canvas.toDataURL('image/png', 1.0);
+            const a = document.createElement('a');
+            a.href = dataUrl;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            return;
+          }
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.style.display = 'none';
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => {
+            if (document.body.contains(a)) document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }, 2000);
+        }, 'image/png');
+      } else {
+        const dataUrl = canvas.toDataURL('image/png', 1.0);
+        const a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
     } catch (err) {
       console.error('Download slip error:', err);
-      alert('ไม่สามารถดาวน์โหลดภาพสลิปได้: ' + err.message);
+      try {
+        const dataUrl = canvas.toDataURL('image/png');
+        const win = window.open();
+        if (win) {
+          win.document.write(`<div style="text-align:center; padding: 20px;"><img src="${dataUrl}" style="max-width:100%; height:auto; border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,0.2);" alt="Slip"><p style="font-family:sans-serif; margin-top:14px; font-size:16px; color:#333;">👆 แตะค้างที่รูปภาพเพื่อบันทึกลงในอัลบั้มรูปมือถือ</p></div>`);
+        }
+      } catch (eFallback) {
+        alert('ไม่สามารถดาวน์โหลดภาพสลิปได้: ' + err.message);
+      }
     }
   };
 

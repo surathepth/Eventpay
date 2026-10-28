@@ -756,6 +756,25 @@
         return { success: false, message: 'ไม่พบคำสั่งซื้อที่รอการชำระเงินที่ตรงกับเงื่อนไขนี้' };
       }
 
+      // [STRICT FINANCIAL SHIELD - RULE 4]: ล็อกระบบไม่ให้เจนตั๋ว ถ้ายอดเงินโอนไม่ตรงกับยอดจอง
+      if (criteria && criteria.amount !== undefined && targetOrder) {
+        const receivedAmt = parseFloat(criteria.amount);
+        const orderAmt = parseFloat(targetOrder.total_amount);
+        if (receivedAmt < orderAmt - 0.01) {
+          this.logAudit('PAYMENT_UNDERPAID', 'SECURITY', `ยอดเงินโอน ฿${receivedAmt} ไม่พอกับยอดจอง ฿${orderAmt} ในออเดอร์ ${targetOrder.order_id}`, verifierId);
+          this._recordIncident('UNDERPAID_SLIP', null, null, 'BANK_CONFIRM', '', `ยอดเงินโอน ฿${receivedAmt} น้อยกว่ายอดจอง ฿${orderAmt}`);
+          this.update('orders', targetOrder.order_id, {
+            payment_status: 'AMOUNT_MISMATCH',
+            notes: `ยอดเงินโอนไม่ครบ (โอนมา ฿${receivedAmt.toFixed(2)} ยอดที่ต้องชำระ ฿${orderAmt.toFixed(2)})`
+          });
+          return {
+            success: false,
+            code: 'AMOUNT_MISMATCH',
+            message: `ยอดเงินโอน (฿${receivedAmt.toFixed(2)}) น้อยกว่ายอดคำสั่งซื้อ (฿${orderAmt.toFixed(2)}) ระบบไม่เจนตั๋วเด็ดขาด`
+          };
+        }
+      }
+
       if (targetOrder.payment_status === 'PAID') {
         const tickets = this.getAll('tickets', t => t.order_id === targetOrder.order_id && !t.is_void);
         return { success: true, alreadyPaid: true, order: targetOrder, tickets };

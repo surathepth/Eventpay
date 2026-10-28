@@ -221,9 +221,14 @@
     container.innerHTML = '';
 
     tiers.forEach((tier, index) => {
-      // ตั้งค่าเริ่มต้น: โซนแรกมีจำนวน 1 ใบ
+      /* [REMARKED BY THEP-APAI & LILIN: โค้ดเดิมบังคับให้โซนแรกเป็น 1 ใบ ทำให้หน้าเว็บล็อกจำนวนบัตรไว้]
       if (!(tier.tier_id in bookingQuantities)) {
         bookingQuantities[tier.tier_id] = (index === 0 ? 1 : 0);
+      }
+      */
+      // [INSERT ACTIVE MODERN LOGIC]: ปลดล็อกทุกราคาบัตรเริ่มต้นเป็น 0 ทั้งหมดตามคำสั่งเทพอภัย
+      if (!(tier.tier_id in bookingQuantities)) {
+        bookingQuantities[tier.tier_id] = 0;
       }
 
       const isSelected = bookingQuantities[tier.tier_id] > 0;
@@ -566,7 +571,7 @@
         }
         if (previewContainer) previewContainer.style.display = 'block';
         if (uploadZone) uploadZone.style.borderColor = '#10b981';
-        if (statusText) statusText.textContent = '✓ แนบรูปภาพสลิปแล้ว กรุณากรอกเลขอ้างอิงจากสลิป';
+        if (statusText) statusText.textContent = '✓ แนบรูปภาพสลิปโอนเงินเรียบร้อยแล้ว พร้อมกดยืนยันการจอง';
 
         validateFormReadiness();
       };
@@ -1053,9 +1058,13 @@
     const finalBankRef = bankRef || (hasSlip ? ('SLIP-' + Date.now().toString().slice(-8)) : ('AUTO-PROMPTPAY-' + Date.now().toString().slice(-6)));
     const finalSlipUrl = attachedSlipBase64 || '';
 
-    // [POINT 2]: หากมีสลิปแนบ BotAdmin ตรวจพบและอนุมัติทันที (requires_verification: false) ออกตั๋วใน 1.5 วินาที
-    // หากไม่มีสลิปแนบ (Zero-Slip) requires_verification: true เพื่อรอสัญญาณจากธนาคาร/Open API
+    /* [REMARKED BY THEP-APAI & LILIN: โค้ดเดิมเมื่อมีสลิปแนบจะออกตั๋วทันทีโดยไม่ตรวจยอดเงิน ทำให้ถ้ายอดโอนน้อยกว่า บัตรก็ยังหลุดออกไป เงินสูญหายทันที]
     const requiresVerification = !hasSlip;
+    */
+    // [INSERT ACTIVE MODERN LOGIC - STRICT FINANCIAL SHIELD]:
+    // ทุกคำสั่งซื้อที่มีการโอนเงิน ต้องผ่านการตรวจสอบยอดเงินจริงให้ตรงกับยอดจอง 100% ก่อนเสมอ
+    // หากยอดเงินไม่ตรง หรือน้อยกว่า ระบบจะไม่เจนตั๋ว QR Code ให้อัตโนมัติเด็ดขาด
+    const requiresVerification = true;
 
     const orderData = {
       customer_name: custName,
@@ -1084,21 +1093,19 @@
         }).catch(e => console.warn('[Booking] Server order sync non-blocking error:', e));
       } catch (eSync) {}
 
+      /* [REMARKED BY THEP-APAI & LILIN: โค้ดเดิมปล่อยให้มีสลิปแล้วออกตั๋วทันทีโดยไม่ตรวจยอดเงิน ทำให้ถ้ายอดโอนน้อยกว่า บัตรหลุดออกไป เงินหายทันที]
       if (hasSlip) {
-        // [POINT 2]: BotAdmin ตรวจพบสลิปแนบ -> เจนตั๋ว QR Code และใบเสร็จทางการทันทีใน 1.5 วินาที
-        const btn = document.getElementById('btnSubmitBooking');
-        if (btn) {
-          btn.innerHTML = '🤖 BotAdmin ตรวจพบสลิป กำลังออกตั๋ว QR Code และใบเสร็จใน 1.5 วินาที...';
-          btn.disabled = true;
-        }
-        if (notice) {
-          notice.innerHTML = '<span style="color: #34d399; font-weight: 700;">🤖 BotAdmin ตรวจพบสลิปแนบ กำลังสร้างตั๋ว QR Code และใบเสร็จทางการให้อัตโนมัติ</span>';
-        }
-
+        ...
         setTimeout(() => {
           handlePaymentSuccessAuto(result.order.order_id);
         }, 1200);
-
+      }
+      */
+      // [INSERT ACTIVE MODERN LOGIC - STRICT FINANCIAL SHIELD]:
+      // เมื่อลูกค้าแนบสลิป ระบบจะบันทึกเข้าสู่คิวรอตรวจสอบยอดเงินจริงกับสเตทเมนต์ธนาคาร
+      // หากยอดเงินไม่ตรง หรือน้อยกว่ายอดจอง ระบบจะไม่เจนตั๋วเด็ดขาด
+      if (hasSlip) {
+        startWaitingVerification(result);
       } else if (isSystemC) {
         // ไม่มีสลิปแนบ -> รอระบบตรวจจับเงินเข้าอัตโนมัติ (Zero-Slip / Bank Open API)
         if (effectiveTotal !== total) {
@@ -1210,6 +1217,22 @@
           payment: payments[0] || payment,
           tickets: tickets
         });
+
+      } else if (updatedOrder.payment_status === 'AMOUNT_MISMATCH') {
+        // [RULE 4]: ตรวจพบยอดเงินโอนไม่ตรง หรือน้อยกว่ายอดจอง ระงับการออกตั๋วเด็ดขาด
+        clearInterval(waitingPollInterval);
+        clearInterval(waitingCountdownInterval);
+
+        if (audioAlert) audioAlert.playAlertSiren();
+
+        const waitBadge = document.getElementById('waitBadge');
+        if (waitBadge) {
+          waitBadge.className = 'ep-badge ep-badge-danger';
+          waitBadge.style.animation = 'none';
+          waitBadge.textContent = '⚠️ ยอดเงินไม่ถูกต้อง (ยอดโอนน้อยกว่ายอดจอง)';
+        }
+
+        alert(`🚨 แจ้งเตือนความปลอดภัยทางการเงิน:\nยอดเงินที่โอนเข้ามา ไม่ตรงกับยอดรวมของคำสั่งซื้อ (ยอดโอนน้อยกว่ายอดที่ต้องชำระ ฿${(updatedOrder.total_amount || 0).toLocaleString('th-TH')})\nระบบระงับการออกตั๋วอัตโนมัติ กรุณาติดต่อฝ่ายบัญชีเพื่อตรวจสอบสเตทเมนต์`);
 
       } else if (updatedOrder.payment_status === 'VOID') {
         // ฝ่ายบัญชีตรวจพบสลิปปลอม หรือระงับสิทธิ์
@@ -1992,33 +2015,49 @@
   }
 
   // ==========================================================================
-  // SMART PRINT FUNCTIONS (ALL / RECEIPT ONLY / TICKETS ONLY)
+  // SMART EXPORT & PRINT FUNCTIONS (MOBILE-FRIENDLY & DESKTOP THERMAL DUAL-ENGINE)
   // ==========================================================================
   window.printAllReceiptAndTickets = function () {
     const { order, payment, tickets } = resolveCurrentBookingOrderAndTickets();
-    if (!order.order_id && (!tickets || tickets.length === 0)) {
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768;
+
+    if (typeof SlipGenerator !== 'undefined' && order && order.order_id) {
+      SlipGenerator.downloadAllSlips(order, payment, tickets);
+    } else if (!isMobile) {
+      executeBookingThermalPrint(order, tickets, 'ALL', payment);
+    } else {
       window.print();
-      return;
     }
-    executeBookingThermalPrint(order, tickets, 'ALL', payment);
   };
 
   window.printReceiptOnly = function () {
     const { order, payment, tickets } = resolveCurrentBookingOrderAndTickets();
-    if (!order.order_id) {
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768;
+
+    if (typeof SlipGenerator !== 'undefined' && order && order.order_id) {
+      SlipGenerator.downloadReceiptSlip(order, payment, tickets);
+    } else if (!isMobile) {
+      executeBookingThermalPrint(order, tickets, 'RECEIPT_ONLY', payment);
+    } else {
       window.print();
-      return;
     }
-    executeBookingThermalPrint(order, tickets, 'RECEIPT_ONLY', payment);
   };
 
   window.printTicketsOnly = function () {
     const { order, payment, tickets } = resolveCurrentBookingOrderAndTickets();
-    if (!tickets || tickets.length === 0) {
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768;
+
+    if (typeof SlipGenerator !== 'undefined' && tickets && tickets.length > 0) {
+      tickets.forEach((ticket, idx) => {
+        setTimeout(() => {
+          SlipGenerator.downloadTicketSlip(ticket, order, idx + 1, tickets.length);
+        }, idx * 300);
+      });
+    } else if (!isMobile) {
+      executeBookingThermalPrint(order, tickets, 'TICKETS_ONLY', payment);
+    } else {
       window.print();
-      return;
     }
-    executeBookingThermalPrint(order, tickets, 'TICKETS_ONLY', payment);
   };
 
   // ==========================================================================
