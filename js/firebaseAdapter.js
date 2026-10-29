@@ -228,6 +228,98 @@
     }
 
     /**
+     * ซิงก์การตั้งค่าระบบ (บัญชีรับเงินหลัก, ประเภทราคาบัตร, สัญญาณล้างข้อมูล) ขึ้น Firestore Cloud
+     * เพื่อให้ทุกอุปกรณ์ (PC, มือถือ, แท็บเล็ต) ซิงก์ตรงกัน 100%
+     */
+    async syncSettingsToCloud(settingKey, data) {
+      if (!settingKey) return { success: false, message: 'Invalid settingKey' };
+      const projectId = (this.config && this.config.projectId) || DEFAULT_FIREBASE_CONFIG.projectId;
+      const docPayload = {
+        setting_key: settingKey,
+        data_json: typeof data === 'string' ? data : JSON.stringify(data),
+        updated_at: new Date().toISOString()
+      };
+
+      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/settings?documentId=${encodeURIComponent(settingKey)}`;
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fields: this._toFirestoreFields(docPayload) })
+        });
+
+        if (!res.ok) {
+          // หากมีเอกสารอยู่แล้ว ให้ใช้ PATCH เพื่อเขียนทับ
+          const patchUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/settings/${encodeURIComponent(settingKey)}`;
+          await fetch(patchUrl, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: this._toFirestoreFields(docPayload) })
+          });
+        }
+        return { success: true, settingKey };
+      } catch (err) {
+        console.warn(`[FirebaseAdapter] syncSettingsToCloud (${settingKey}) warning:`, err.message);
+        return { success: false, error: err.message };
+      }
+    }
+
+    /**
+     * ดึงการตั้งค่าระบบจาก Firestore Cloud
+     */
+    async fetchCloudSetting(settingKey) {
+      if (!settingKey) return null;
+      const projectId = (this.config && this.config.projectId) || DEFAULT_FIREBASE_CONFIG.projectId;
+      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/settings/${encodeURIComponent(settingKey)}`;
+      try {
+        const res = await fetch(url, { cache: 'no-cache' });
+        if (!res.ok) return null;
+        const json = await res.json();
+        if (!json.fields) return null;
+        const data = this._fromFirestoreFields(json.fields);
+        if (data && data.data_json) {
+          try {
+            return JSON.parse(data.data_json);
+          } catch (eParse) {
+            return data.data_json;
+          }
+        }
+        return data;
+      } catch (err) {
+        console.warn(`[FirebaseAdapter] fetchCloudSetting (${settingKey}) warning:`, err.message);
+        return null;
+      }
+    }
+
+    /**
+     * ดึงการตั้งค่าระบบทั้งหมดจาก Cloud พร้อมกัน (Active Bank, Ticket Tiers, System State)
+     */
+    async fetchAllCloudSettings() {
+      try {
+        const [activeBank, ticketTiers, systemState, bankAccounts] = await Promise.all([
+          this.fetchCloudSetting('active_bank'),
+          this.fetchCloudSetting('ticket_tiers'),
+          this.fetchCloudSetting('system_state'),
+          this.fetchCloudSetting('bank_accounts')
+        ]);
+        return { activeBank, ticketTiers, systemState, bankAccounts };
+      } catch (err) {
+        console.warn('[FirebaseAdapter] fetchAllCloudSettings warning:', err.message);
+        return { activeBank: null, ticketTiers: null, systemState: null, bankAccounts: null };
+      }
+    }
+
+    /**
+     * ส่งสัญญาณล้างข้อมูลธุรกรรมขึ้น Cloud พร้อมล้างออเดอร์เก่าทั้งหมด
+     */
+    async broadcastClearTransactionsToCloud(timestamp) {
+      const ts = timestamp || new Date().toISOString();
+      await this.syncSettingsToCloud('system_state', { last_cleared_at: ts });
+      await this.clearAllCloudOrders();
+      return ts;
+    }
+
+    /**
      * ลบคำสั่งซื้อออกจาก Google Cloud Firestore
      */
     async deleteCloudOrder(orderId) {

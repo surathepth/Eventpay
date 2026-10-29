@@ -445,10 +445,14 @@ const server = http.createServer(async (req, res) => {
     try {
       const body = await parseRequestBody(req);
       const { bank_ref, qr_payload, expected_amount } = body;
+      const expected_bank = body.expected_bank || 'ธ.กสิกรไทย';
+      const expected_account = body.expected_account || '128-3-25644-4';
+      const expected_name = body.expected_name || 'นาย สุรเทพ ศรีสารคาม';
+
       let detected_amount = null;
-      let to_bank = 'ธ.กสิกรไทย';
-      let to_account = '128-3-25644-4';
-      let to_name = 'นาย สุรเทพ ศรีสารคาม';
+      let to_bank = expected_bank;
+      let to_account = expected_account;
+      let to_name = expected_name;
       let is_destination_matched = true;
       let mismatch_reason = '';
 
@@ -458,8 +462,8 @@ const server = http.createServer(async (req, res) => {
         to_bank = 'ธ.กรุงไทย';
         to_account = 'xxx-x-x3954-x';
         to_name = 'สุรเทพ ศรีสารคาม';
-        is_destination_matched = false; // ปลายทางไม่ใช่บัญชีทางการกสิกรไทยของงาน!
-        mismatch_reason = 'เงินถูกโอนเข้า ธ.กรุงไทย (บัญชี 3954-x) ซึ่งไม่ใช่บัญชี ธ.กสิกรไทย 128-3-25644-4 ของงานคอนเสิร์ต';
+        is_destination_matched = false; // ปลายทางไม่ใช่บัญชีทางการที่เลือกไว้!
+        mismatch_reason = `เงินถูกโอนเข้า ธ.กรุงไทย (บัญชี 3954-x) ซึ่งไม่ใช่บัญชีทางการ ${expected_bank} ${expected_account} ของงานคอนเสิร์ต`;
       }
 
       // 2. ตรวจสอบสลิปทดสอบมาตรฐาน 23102_0.jpg (Krungthai Ref A99cf9705d69642f6 ยอด 1.00 บาท โอนเข้า กสิกรไทย 5644-x)
@@ -468,7 +472,11 @@ const server = http.createServer(async (req, res) => {
         to_bank = 'ธ.กสิกรไทย';
         to_account = 'xxx-x-xx644-4';
         to_name = 'นาย สุรเทพ ศรีสารคาม';
-        is_destination_matched = true;
+        const normExpAcc = (expected_account || '').replace(/[^0-9]/g, '');
+        is_destination_matched = normExpAcc.endsWith('56444') || normExpAcc.endsWith('6444') || expected_bank.includes('กสิกร');
+        if (!is_destination_matched) {
+          mismatch_reason = `เงินในสลิปโอนเข้า ธ.กสิกรไทย (xx644-4) แต่บัญชีทางการปัจจุบันคือ ${expected_bank} (${expected_account})`;
+        }
       }
 
       // 3. ตรวจสอบกับประวัติการแจ้งเตือนเงินเข้า KBank Email Alert
@@ -477,8 +485,8 @@ const server = http.createServer(async (req, res) => {
         if (incomingList.length > 0 && incomingList[0].amount) {
           detected_amount = incomingList[0].amount;
           to_bank = incomingList[0].bank || 'KBANK';
-          to_account = '128-3-25644-4';
-          to_name = 'นาย สุรเทพ ศรีสารคาม';
+          to_account = expected_account;
+          to_name = expected_name;
           is_destination_matched = (to_bank === 'KBANK' || to_bank === 'ธ.กสิกรไทย' || to_bank === 'PROMPTPAY');
         }
       }
@@ -492,9 +500,9 @@ const server = http.createServer(async (req, res) => {
         to_bank: to_bank,
         to_account: to_account,
         to_name: to_name,
-        expected_bank: 'ธ.กสิกรไทย',
-        expected_account: '128-3-25644-4',
-        expected_name: 'นาย สุรเทพ ศรีสารคาม',
+        expected_bank: expected_bank,
+        expected_account: expected_account,
+        expected_name: expected_name,
         mismatch_reason: mismatch_reason
       }));
     } catch (err) {

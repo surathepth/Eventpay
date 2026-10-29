@@ -470,15 +470,79 @@
   };
 
   // ==========================================================================
-  // 3. ฟังก์ชันสั่งดาวน์โหลดภาพ (DOWNLOAD HELPERS)
+  // 3. ฟังก์ชันสั่งดาวน์โหลดภาพ (DOWNLOAD HELPERS & UNIVERSAL MOBILE MODAL)
   // ==========================================================================
+  SlipGenerator.showMobileImageModal = function (dataUrl, filename) {
+    let modal = document.getElementById('epSlipMobilePreviewModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'epSlipMobilePreviewModal';
+      modal.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(15, 23, 42, 0.95); z-index: 999999;
+        display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+        padding: 16px; box-sizing: border-box; overflow-y: auto; backdrop-filter: blur(8px);
+      `;
+      document.body.appendChild(modal);
+    }
+
+    modal.innerHTML = `
+      <div style="max-width: 500px; width: 100%; display: flex; flex-direction: column; align-items: center; margin-top: 10px;">
+        <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <span style="color: #38bdf8; font-weight: 800; font-size: 1.05rem;">🖼️ สลิปภาพทางการ (สำหรับมือถือ)</span>
+          <button type="button" onclick="document.getElementById('epSlipMobilePreviewModal').style.display='none'" style="background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #fca5a5; padding: 6px 14px; border-radius: 8px; font-weight: 700; cursor: pointer;">✕ ปิดหน้าต่าง</button>
+        </div>
+
+        <div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(5, 150, 105, 0.3) 100%); border: 1.5px solid #10b981; border-radius: 12px; padding: 12px 16px; margin-bottom: 14px; width: 100%; text-align: center; box-shadow: 0 4px 18px rgba(16, 185, 129, 0.3);">
+          <div style="font-size: 0.95rem; font-weight: 800; color: #34d399; margin-bottom: 4px;">📲 บันทึกลงอัลบั้มรูปในมือถือ:</div>
+          <div style="font-size: 0.88rem; color: #fff; line-height: 1.5;">👉 <strong>แตะค้างที่รูปภาพด้านล่าง</strong> แล้วเลือก <strong>"บันทึกรูปภาพ" (Save Image)</strong> ได้ทันทีค่ะ</div>
+        </div>
+
+        <img src="${dataUrl}" alt="EventPay Slip" style="width: 100%; max-width: 440px; height: auto; border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.15); margin-bottom: 16px;">
+
+        <div style="display: flex; gap: 10px; width: 100%; justify-content: center; margin-bottom: 24px;">
+          <button type="button" onclick="document.getElementById('epSlipMobilePreviewModal').style.display='none'" style="background: #334155; color: #fff; padding: 12px 24px; border-radius: 8px; font-weight: 700; border: none; cursor: pointer; width: 100%; font-size: 1rem;">✓ เรียบร้อยแล้ว (ปิด)</button>
+        </div>
+      </div>
+    `;
+    modal.style.display = 'flex';
+    modal.scrollIntoView({ behavior: 'smooth' });
+  };
+
   SlipGenerator.downloadCanvasAsImage = function (canvas, filename) {
     if (!canvas) return;
+
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768;
+    const isLineOrInApp = /Line\/|FBAV\/|Instagram|MicroMessenger|musical_ly|BytedanceWebview/i.test(navigator.userAgent);
+    const dataUrl = canvas.toDataURL('image/png', 1.0);
+
+    // 1. บนมือถือหรือใน In-App Browser (LINE, Facebook) ให้เปิดโมดอลภาพสลิปทันที เพื่อให้แตะค้างบันทึกรูปได้ 100%
+    if (isMobile || isLineOrInApp) {
+      SlipGenerator.showMobileImageModal(dataUrl, filename);
+    }
+
+    // 2. สำหรับเบราว์เซอร์ที่รองรับ Web Share API ให้สั่งแชร์ภาพเข้า Photos ได้ในคลิกเดียว
+    if (navigator.share && navigator.canShare && canvas.toBlob) {
+      try {
+        canvas.toBlob(blob => {
+          if (!blob) return;
+          const file = new File([blob], filename, { type: 'image/png' });
+          if (navigator.canShare({ files: [file] })) {
+            navigator.share({
+              files: [file],
+              title: 'บันทึกสลิปคอนเสิร์ต EventPay',
+              text: 'สลิปหลักฐานทางการคอนเสิร์ต EventPay'
+            }).catch(() => {});
+          }
+        }, 'image/png');
+      } catch (eShare) {}
+    }
+
+    // 3. ทริกเกอร์ดาวน์โหลดตามปกติ (สำหรับ PC Desktop / ทั่วไป)
     try {
       if (canvas.toBlob) {
         canvas.toBlob(blob => {
           if (!blob) {
-            const dataUrl = canvas.toDataURL('image/png', 1.0);
             const a = document.createElement('a');
             a.href = dataUrl;
             a.download = filename;
@@ -500,7 +564,6 @@
           }, 2000);
         }, 'image/png');
       } else {
-        const dataUrl = canvas.toDataURL('image/png', 1.0);
         const a = document.createElement('a');
         a.href = dataUrl;
         a.download = filename;
@@ -509,16 +572,7 @@
         document.body.removeChild(a);
       }
     } catch (err) {
-      console.error('Download slip error:', err);
-      try {
-        const dataUrl = canvas.toDataURL('image/png');
-        const win = window.open();
-        if (win) {
-          win.document.write(`<div style="text-align:center; padding: 20px;"><img src="${dataUrl}" style="max-width:100%; height:auto; border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,0.2);" alt="Slip"><p style="font-family:sans-serif; margin-top:14px; font-size:16px; color:#333;">👆 แตะค้างที่รูปภาพเพื่อบันทึกลงในอัลบั้มรูปมือถือ</p></div>`);
-        }
-      } catch (eFallback) {
-        alert('ไม่สามารถดาวน์โหลดภาพสลิปได้: ' + err.message);
-      }
+      console.warn('Auto download non-blocking warning:', err);
     }
   };
 

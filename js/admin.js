@@ -89,6 +89,19 @@
 
     isSyncingCloud = true;
     try {
+      // 1. ซิงก์การตั้งค่าระบบและสัญญาณล้างข้อมูลจาก Cloud (Dynamic Settings Sync)
+      try {
+        if (typeof EventPayFirebase.fetchAllCloudSettings === 'function') {
+          const cloudSettings = await EventPayFirebase.fetchAllCloudSettings();
+          if (cloudSettings && typeof EventPayDB.syncFromCloudSettings === 'function') {
+            EventPayDB.syncFromCloudSettings(cloudSettings);
+          }
+        }
+      } catch (eSettingsSync) {
+        console.warn('[Admin Cloud Sync] Cloud settings sync non-blocking warning:', eSettingsSync);
+      }
+
+      // 2. ซิงก์คำสั่งซื้อจาก Firestore Cloud
       const cloudOrders = await EventPayFirebase.fetchCloudOrders();
       if (Array.isArray(cloudOrders) && cloudOrders.length > 0) {
         let hasNewOrder = false;
@@ -1078,8 +1091,16 @@
 
   function syncTicketTiersToMasterDisk() {
     try {
+      const allTiers = EventPayDB.getAll('ticket_tiers');
+
+      // [CLOUD DYNAMIC SYNC]: ซิงก์โซนราคาบัตรขึ้น Google Cloud Firestore ทันที
+      try {
+        if (typeof EventPayFirebase !== 'undefined' && typeof EventPayFirebase.syncSettingsToCloud === 'function') {
+          EventPayFirebase.syncSettingsToCloud('ticket_tiers', allTiers);
+        }
+      } catch (eCloudTiers) {}
+
       if (typeof fetch !== 'undefined') {
-        const allTiers = EventPayDB.getAll('ticket_tiers');
         const syncUrl = (typeof EventPayDB !== 'undefined' && typeof EventPayDB.getApiUrl === 'function')
           ? EventPayDB.getApiUrl('/api/db/ticket_tiers/sync')
           : ((typeof window !== 'undefined' && window.location.protocol === 'file:') ? 'http://localhost:8080/api/db/ticket_tiers/sync' : '/api/db/ticket_tiers/sync');
@@ -2140,8 +2161,20 @@
 
   function syncBankAccountsToMasterDisk() {
     try {
+      const allAccounts = EventPayDB.getAll('bank_accounts');
+      const activeAccount = EventPayDB.getActiveBankAccount();
+
+      // [CLOUD DYNAMIC SYNC]: ซิงก์รายชื่อบัญชีธนาคารและบัญชีหลักขึ้น Google Cloud Firestore แบบไดนามิกทันที
+      try {
+        if (typeof EventPayFirebase !== 'undefined' && typeof EventPayFirebase.syncSettingsToCloud === 'function') {
+          EventPayFirebase.syncSettingsToCloud('bank_accounts', allAccounts);
+          if (activeAccount) {
+            EventPayFirebase.syncSettingsToCloud('active_bank', activeAccount);
+          }
+        }
+      } catch (eCloudBank) {}
+
       if (typeof fetch !== 'undefined') {
-        const allAccounts = EventPayDB.getAll('bank_accounts');
         fetch('/api/db/bank_accounts/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

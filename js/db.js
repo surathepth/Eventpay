@@ -94,6 +94,7 @@
       }
       // ระบบเยียวยาข้อมูลอัตโนมัติ (Self-Healing Migration) สำหรับทุกสภาพแวดล้อม (file:///, localhost, cloud)
       this._healLegacyTicketTiers();
+      this._healLegacyBankAccounts();
     }
 
     _initNetworkSync() {
@@ -218,6 +219,13 @@
         localStorage.setItem('eventpay_last_cleared_at', nowCleared);
       }
 
+      // [UNIVERSAL CLOUD REALTIME SYNC]: ส่งสัญญาณล้างข้อมูลขึ้น Firestore Cloud เพื่อให้มือถือและทุกอุปกรณ์รีเซ็ตพร้อมกัน
+      try {
+        if (typeof EventPayFirebase !== 'undefined' && typeof EventPayFirebase.broadcastClearTransactionsToCloud === 'function') {
+          EventPayFirebase.broadcastClearTransactionsToCloud(nowCleared).catch(e => console.warn('[DB] Clear cloud broadcast warning:', e));
+        }
+      } catch (eCloudBroadcast) {}
+
       // บันทึก Audit Log รายการแรกของการล้างข้อมูล
       try {
         this.logAudit('CLEAR_TRANSACTIONS', 'SYSTEM', `ล้างข้อมูลธุรกรรมทั้งหมด ${clearedCount} รายการ โดยสิทธิ์ผู้ดูแลระบบสูงสุด`, clearedBy);
@@ -255,7 +263,8 @@
         { tier_id: 'TIER-VIP', name: 'VIP Front Row (Zone A)', price: 2000.00, quota: 500, sold: 0 },
         { tier_id: 'TIER-REG', name: 'Regular Seated (Zone B)', price: 1500.00, quota: 2000, sold: 0 },
         { tier_id: 'TIER-STD', name: 'General Standing (Zone C)', price: 1200.00, quota: 5000, sold: 0 },
-        { tier_id: 'TIER-GEN', name: 'ทั่วไป', price: 1000.00, quota: 1000, sold: 0 }
+        { tier_id: 'TIER-GEN', name: 'ทั่วไป', price: 1000.00, quota: 1000, sold: 0 },
+        { tier_id: 'TIER-TEST-5', name: 'บัตรทดสอบโอนจริง 5 บาท (KBank)', price: 5.00, quota: 500, sold: 0 }
       ];
 
       // 3. ประตูตรวจบัตร (Gates)
@@ -527,9 +536,9 @@
             account_id: 'BANK-001',
             bank_name: 'ธนาคารกสิกรไทย (KBANK)',
             bank_code: 'KBANK',
-            account_number: '081-234-5678',
-            account_name: 'บริษัท สุรเทพอภัย คอนเสิร์ต จำกัด (EventPay Official)',
-            promptpay_id: '0812345678',
+            account_number: '128-3-25644-4',
+            account_name: 'สุรเทพ ศรีสารคาม',
+            promptpay_id: '0947834659',
             promptpay_type: 'PHONE',
             is_active: true,
             notes: 'บัญชีหลักสำหรับรับโอนเงินค่าบัตรคอนเสิร์ตและ PromptPay QR Code หน้าเว็บ',
@@ -571,7 +580,8 @@
           { tier_id: 'TIER-VIP', name: 'VIP Front Row (Zone A)', price: 2000.00, quota: 500, sold: 0 },
           { tier_id: 'TIER-REG', name: 'Regular Seated (Zone B)', price: 1500.00, quota: 2000, sold: 0 },
           { tier_id: 'TIER-STD', name: 'General Standing (Zone C)', price: 1200.00, quota: 5000, sold: 0 },
-          { tier_id: 'TIER-GEN', name: 'ทั่วไป', price: 1000.00, quota: 1000, sold: 0 }
+          { tier_id: 'TIER-GEN', name: 'ทั่วไป', price: 1000.00, quota: 1000, sold: 0 },
+          { tier_id: 'TIER-TEST-5', name: 'บัตรทดสอบโอนจริง 5 บาท (KBank)', price: 5.00, quota: 500, sold: 0 }
         ];
         this._saveCollection('ticket_tiers', defaultTiers);
       }
@@ -579,7 +589,7 @@
 
     /**
      * ระบบเยียวยาและอัปเกรดราคาบัตรอัตโนมัติ (Self-Healing Legacy Tier Migration)
-     * บังคับตรวจจับราคาตกค้างรุ่นเก่า (5000 / 2500) และอัปเกรดเป็นราคาทางการ 4 โซน 100%
+     * บังคับตรวจจับราคาตกค้างรุ่นเก่า (5000 / 2500) และอัปเกรดเป็นราคาทางการ 100%
      * ทำงานอัตโนมัติทั้งบน file:/// (Explorer), http://localhost:8080 (Browser), และ Cloud
      */
     _healLegacyTicketTiers() {
@@ -589,13 +599,18 @@
         return;
       }
 
+      // ลบ TIER-TEST-1 (1 บาท) ออกจากระบบอัตโนมัติ หากมีตกค้าง
+      if (tiers.some(t => t.tier_id === 'TIER-TEST-1')) {
+        const cleaned = tiers.filter(t => t.tier_id !== 'TIER-TEST-1');
+        this._saveCollection('ticket_tiers', cleaned);
+      }
+
       const officialTiers = [
         { tier_id: 'TIER-VIP', name: 'VIP Front Row (Zone A)', price: 2000.00, quota: 500, sold: 0 },
         { tier_id: 'TIER-REG', name: 'Regular Seated (Zone B)', price: 1500.00, quota: 2000, sold: 0 },
         { tier_id: 'TIER-STD', name: 'General Standing (Zone C)', price: 1200.00, quota: 5000, sold: 0 },
         { tier_id: 'TIER-GEN', name: 'ทั่วไป', price: 1000.00, quota: 1000, sold: 0 },
-        { tier_id: 'TIER-TEST-5', name: 'บัตรทดสอบโอนจริง 5 บาท (KBank)', price: 5.00, quota: 500, sold: 0 },
-        { tier_id: 'TIER-TEST-1', name: 'บัตรทดสอบโอนจริง 1 บาท (KBank)', price: 1.00, quota: 500, sold: 0 }
+        { tier_id: 'TIER-TEST-5', name: 'บัตรทดสอบโอนจริง 5 บาท (KBank)', price: 5.00, quota: 500, sold: 0 }
       ];
 
       // เคารพสิทธิ์การลบ/แก้ไขประเภทราคาบัตรของแอดมินหน้างาน ไม่แอบยัดเยียดบัตรทดสอบกลับเข้ามาซ้ำ
@@ -618,8 +633,75 @@
         });
         this._saveCollection('ticket_tiers', healed);
         if (typeof console !== 'undefined') {
-          console.log('🩺 [EventPayDB:Self-Healing] อัปเกรดราคาบัตรทางการ 4 โซน (2000/1500/1200/1000) สำเร็จสมบูรณ์!');
+          console.log('[EventPayDB] Self-Healing Tier Migration: Realigned tiers to official active zones.');
         }
+      }
+    }
+
+    /**
+     * ระบบเยียวยาบัญชีธนาคารอัตโนมัติ (Self-Healing Bank Accounts Migration)
+     * อัปเกรดเลขบัญชีทดสอบเก่า (081-234-5678) เป็นบัญชีทางการ (128-3-25644-4) อัตโนมัติทุกอุปกรณ์
+     */
+    _healLegacyBankAccounts() {
+      let accounts = this.getAll('bank_accounts');
+      if (!Array.isArray(accounts) || accounts.length === 0) {
+        this._seedBankAccountsIfMissing();
+        return;
+      }
+      let modified = false;
+      accounts.forEach(acc => {
+        if (acc.account_number === '081-234-5678' || acc.promptpay_id === '0812345678') {
+          acc.account_number = '128-3-25644-4';
+          acc.bank_name = 'ธนาคารกสิกรไทย (KBANK)';
+          acc.account_name = 'สุรเทพ ศรีสารคาม';
+          acc.promptpay_id = '0947834659';
+          acc.promptpay_type = 'PHONE';
+          acc.updated_at = new Date().toISOString();
+          modified = true;
+        }
+      });
+      if (modified) {
+        this._saveCollection('bank_accounts', accounts);
+      }
+    }
+
+    /**
+     * ซิงก์การตั้งค่าระบบจาก Cloud เข้าสู่ Local Database (Dynamic Cross-Platform Synchronization)
+     */
+    syncFromCloudSettings(cloudSettings) {
+      if (!cloudSettings) return;
+
+      // 1. ตรวจสอบและซิงก์สัญญาณล้างข้อมูล (System State Clear Timestamp)
+      const sysState = cloudSettings.systemState || cloudSettings.system_state;
+      if (sysState && sysState.last_cleared_at) {
+        const cloudClearedAt = new Date(sysState.last_cleared_at).getTime();
+        const localClearedAtStr = this._getItem('eventpay_last_cleared_at') || (typeof localStorage !== 'undefined' ? localStorage.getItem('eventpay_last_cleared_at') : null);
+        const localClearedAt = localClearedAtStr ? new Date(localClearedAtStr).getTime() : 0;
+
+        if (cloudClearedAt > localClearedAt) {
+          console.log('[DB Cloud Sync] พบสัญญาณล้างข้อมูลใหม่จาก Cloud ➔ ทำการรีเซ็ตข้อมูลธุรกรรมท้องถิ่นเป็น ฿0.00');
+          this.clearTransactionsData('AUTO-CLOUD-SYNC');
+          this._setItem('eventpay_last_cleared_at', sysState.last_cleared_at);
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('eventpay_last_cleared_at', sysState.last_cleared_at);
+          }
+        }
+      }
+
+      // 2. ซิงก์รายชื่อบัญชีธนาคาร และบัญชีหลัก (Dynamic Active Bank)
+      const bAccounts = cloudSettings.bankAccounts || cloudSettings.bank_accounts;
+      if (bAccounts && Array.isArray(bAccounts) && bAccounts.length > 0) {
+        this._saveCollection('bank_accounts', bAccounts);
+      }
+      const actBank = cloudSettings.activeBank || cloudSettings.active_bank;
+      if (actBank && actBank.account_id) {
+        this.setActiveBankAccount(actBank.account_id);
+      }
+
+      // 3. ซิงก์ประเภทราคาบัตร (Ticket Tiers)
+      const tTiers = cloudSettings.ticketTiers || cloudSettings.ticket_tiers;
+      if (tTiers && Array.isArray(tTiers) && tTiers.length > 0) {
+        this._saveCollection('ticket_tiers', tTiers);
       }
     }
 

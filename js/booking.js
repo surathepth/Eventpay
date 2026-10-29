@@ -45,6 +45,17 @@
     setupInputListeners();
     setupSSEListener();
 
+    // [UNIVERSAL CLOUD REALTIME SYNC]: ดึงการตั้งค่าสดจาก Cloud (Active Bank, Tiers, Clear Timestamp)
+    if (typeof EventPayFirebase !== 'undefined' && typeof EventPayFirebase.fetchAllCloudSettings === 'function') {
+      EventPayFirebase.fetchAllCloudSettings().then(cloudSettings => {
+        if (cloudSettings && typeof EventPayDB !== 'undefined' && typeof EventPayDB.syncFromCloudSettings === 'function') {
+          EventPayDB.syncFromCloudSettings(cloudSettings);
+          renderTiers();
+          updateBookingSummary();
+        }
+      }).catch(e => console.warn('[Booking Cloud Sync] Initial settings sync warning:', e));
+    }
+
     // คีย์ลัดสลับโหมด Alt+T สำหรับผู้ดูแลระบบ
     window.addEventListener('keydown', function (e) {
       if (e.altKey && (e.key === 't' || e.key === 'T')) {
@@ -465,15 +476,15 @@
     if (!holder) return;
     holder.innerHTML = '';
 
-    // ดึงข้อมูลบัญชีธนาคารหลักที่เปิดใช้งานจริงจาก EventPayDB
+    // ดึงข้อมูลบัญชีธนาคารหลักที่เปิดใช้งานจริงจาก EventPayDB (Dynamic Active Bank Account)
     let activeBank = null;
     if (typeof EventPayDB !== 'undefined' && EventPayDB.getActiveBankAccount) {
       activeBank = EventPayDB.getActiveBankAccount();
     }
     const bankName = activeBank ? activeBank.bank_name : 'ธนาคารกสิกรไทย (KBANK)';
-    const accNum = activeBank ? activeBank.account_number : '081-234-5678';
-    const accName = activeBank ? activeBank.account_name : 'บริษัท สุรเทพอภัย คอนเสิร์ต จำกัด (EventPay Official)';
-    const promptPayId = activeBank ? activeBank.promptpay_id : '0812345678';
+    const accNum = activeBank ? activeBank.account_number : '128-3-25644-4';
+    const accName = activeBank ? activeBank.account_name : 'สุรเทพ ศรีสารคาม';
+    const promptPayId = activeBank ? activeBank.promptpay_id : '0947834659';
 
     // อัปเดตข้อมูลบัญชีผู้รับเงินแบบไดนามิก
     if (accInfoEl) {
@@ -600,10 +611,18 @@
     }
 
     // 4. ตรวจสอบบัญชีธนาคารปลายทาง (Destination Bank Gate) และยอดเงิน (Amount Match Gate)
+    let currentActiveBank = null;
+    if (typeof EventPayDB !== 'undefined' && EventPayDB.getActiveBankAccount) {
+      currentActiveBank = EventPayDB.getActiveBankAccount();
+    }
+    const expectedBank = currentActiveBank ? currentActiveBank.bank_name : 'ธนาคารกสิกรไทย (KBANK)';
+    const expectedAccount = currentActiveBank ? currentActiveBank.account_number : '128-3-25644-4';
+    const expectedName = currentActiveBank ? currentActiveBank.account_name : 'สุรเทพ ศรีสารคาม';
+
     let detectedAmount = null;
-    let toBank = 'ธ.กสิกรไทย';
-    let toAccount = '128-3-25644-4';
-    let toName = 'นาย สุรเทพ ศรีสารคาม';
+    let toBank = expectedBank;
+    let toAccount = expectedAccount;
+    let toName = expectedName;
     let isDestinationMatched = true;
     let destinationMismatchReason = '';
 
@@ -614,7 +633,7 @@
       toAccount = 'xxx-x-x3954-x';
       toName = 'สุรเทพ ศรีสารคาม';
       isDestinationMatched = false;
-      destinationMismatchReason = 'เงินถูกโอนเข้า ธ.กรุงไทย (บัญชี 3954-x) ซึ่งไม่ใช่บัญชี ธ.กสิกรไทย 128-3-25644-4 ของงานคอนเสิร์ต';
+      destinationMismatchReason = `เงินถูกโอนเข้า ธ.กรุงไทย (บัญชี 3954-x) ซึ่งไม่ใช่บัญชีทางการ ${expectedBank} ${expectedAccount} ของงานคอนเสิร์ต`;
     }
     // สำหรับสลิปทดสอบมาตรฐาน 23102_0.jpg (Krungthai Ref A99cf9705d69642f6 ยอด 1.00 บาท โอนเข้า กสิกรไทย 5644-x)
     else if (bankRef === 'A99cf9705d69642f6' || (qrData && qrData.includes('A99cf9705d69642f6'))) {
@@ -634,7 +653,14 @@
       const resp = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bank_ref: bankRef, qr_payload: qrData, expected_amount: expectedTotal })
+        body: JSON.stringify({
+          bank_ref: bankRef,
+          qr_payload: qrData,
+          expected_amount: expectedTotal,
+          expected_bank: expectedBank,
+          expected_account: expectedAccount,
+          expected_name: expectedName
+        })
       });
       if (resp.ok) {
         const resJson = await resp.json();
@@ -655,9 +681,9 @@
       // Local fallback
     }
 
-    // 4.1 ตรวจสอบด่านบัญชีปลายทาง (Destination Bank Gate) - สลิปต้องโอนเข้า ธ.กสิกรไทย ของงานคอนเสิร์ตเท่านั้น!
+    // 4.1 ตรวจสอบด่านบัญชีปลายทาง (Destination Bank Gate) - สลิปต้องโอนเข้าบัญชีทางการของงานคอนเสิร์ตเท่านั้น!
     if (!isDestinationMatched) {
-      const reason = destinationMismatchReason || `🚨 บัญชีปลายทางไม่ถูกต้อง ตรวจพบโอนเข้า ${toBank} บัญชี ${toAccount} (ไม่ใช่บัญชี ธ.กสิกรไทย 128-3-25644-4 ของงานคอนเสิร์ต)`;
+      const reason = destinationMismatchReason || `🚨 บัญชีปลายทางไม่ถูกต้อง ตรวจพบโอนเข้า ${toBank} บัญชี ${toAccount} (ไม่ใช่บัญชีทางการ ${expectedBank} ${expectedAccount} ของงานคอนเสิร์ต)`;
       if (statusText) statusText.innerHTML = '<span style="color: #ef4444; font-weight: 800;">🚨 บัญชีปลายทางไม่ถูกต้อง (โอนผิดบัญชี)</span>';
       if (detailText) detailText.innerHTML = `<span style="color: #fca5a5;">ตรวจพบ: ${toBank} บัญชี ${toAccount} (${toName}) ❌ ไม่ใช่บัญชีงานคอนเสิร์ต</span>`;
 
@@ -667,10 +693,10 @@
       if (mismatchAlert && mismatchText) {
         mismatchText.innerHTML = `
           <strong>❌ บัญชีปลายทางที่ตรวจพบในสลิป:</strong> <span style="color: #fca5a5; font-weight: 700;">${toBank} บัญชี ${toAccount} (${toName})</span><br>
-          <strong>🏦 บัญชีทางการของงานคอนเสิร์ต:</strong> <span style="color: #86efac; font-weight: 700;">ธนาคารกสิกรไทย 128-3-25644-4 (นาย สุรเทพ ศรีสารคาม)</span><br>
+          <strong>🏦 บัญชีทางการของงานคอนเสิร์ต:</strong> <span style="color: #86efac; font-weight: 700;">${expectedBank} ${expectedAccount} (${expectedName})</span><br>
           <strong style="color: #fca5a5;">⚠️ สถานะ: เงินไม่ได้เข้าบัญชีงานคอนเสิร์ต (โอนผิดธนาคาร/ผิดบัญชี)</strong><br>
           <span style="font-size: 0.84rem; color: #fde047; margin-top: 8px; display: inline-block; line-height: 1.5;">
-            👉 <strong>คำแนะนำ:</strong> กรุณาโอนเงินเข้าบัญชี <strong>ธ.กสิกรไทย เลขที่ 128-3-25644-4 (นาย สุรเทพ ศรีสารคาม)</strong> ให้ถูกต้อง แล้วแนบรูปภาพสลิปใหม่อีกครั้งค่ะ ระบบไม่สามารถออกตั๋วให้ได้
+            👉 <strong>คำแนะนำ:</strong> กรุณาโอนเงินเข้าบัญชี <strong>${expectedBank} เลขที่ ${expectedAccount} (${expectedName})</strong> ให้ถูกต้อง แล้วแนบรูปภาพสลิปใหม่อีกครั้งค่ะ ระบบไม่สามารถออกตั๋วให้ได้
           </span>
         `;
         mismatchAlert.style.display = 'block';
@@ -683,7 +709,10 @@
         isDestinationMismatch: true,
         toBank,
         toAccount,
-        toName
+        toName,
+        expectedBank,
+        expectedAccount,
+        expectedName
       };
     }
 
@@ -1311,8 +1340,15 @@
         if (lastBotInspectionResult && lastBotInspectionResult.isDestinationMismatch) {
           const detectedBank = lastBotInspectionResult.toBank || 'ธนาคารอื่น';
           const detectedAcc = lastBotInspectionResult.toAccount || '-';
+          const activeBank = (typeof EventPayDB !== 'undefined' && EventPayDB.getActiveBankAccount)
+            ? EventPayDB.getActiveBankAccount()
+            : null;
+          const officialBankStr = activeBank
+            ? `${activeBank.bank_name || 'ธนาคาร'} ${activeBank.account_number || ''} (${activeBank.account_name || ''})`
+            : 'ธ.กสิกรไทย 128-3-25644-4 (นาย สุรเทพ ศรีสารคาม)';
+          const officialAccOnly = (activeBank && activeBank.account_number) || '128-3-25644-4';
           if (typeof AudioAlertEngine !== 'undefined') AudioAlertEngine.playAlarm();
-          alert(`🚨 แจ้งเตือนความปลอดภัยทางการเงิน!\nบัญชีปลายทางไม่ถูกต้อง (เงินไม่ได้เข้าบัญชีงานคอนเสิร์ต)\n\n❌ ตรวจพบในสลิป: ${detectedBank} บัญชี ${detectedAcc}\n🏦 บัญชีทางการ: ธ.กสิกรไทย 128-3-25644-4 (นาย สุรเทพ ศรีสารคาม)\n\n👉 กรุณาโอนเงินเข้าบัญชี ธ.กสิกรไทย 128-3-25644-4 ให้ถูกต้อง แล้วแนบรูปภาพสลิปใหม่อีกครั้งค่ะ`);
+          alert(`🚨 แจ้งเตือนความปลอดภัยทางการเงิน!\nบัญชีปลายทางไม่ถูกต้อง (เงินไม่ได้เข้าบัญชีงานคอนเสิร์ต)\n\n❌ ตรวจพบในสลิป: ${detectedBank} บัญชี ${detectedAcc}\n🏦 บัญชีทางการ: ${officialBankStr}\n\n👉 กรุณาโอนเงินเข้าบัญชี ${officialAccOnly} ให้ถูกต้อง แล้วแนบรูปภาพสลิปใหม่อีกครั้งค่ะ`);
           return; // ห้ามออกตั๋วเด็ดขาด!
         }
 
