@@ -51,6 +51,13 @@
           📡 ตรวจหาเครื่องแม่ข่าย LAN...
         </span>
 
+        <button type="button" class="ep-nav-btn" style="background: rgba(56, 189, 248, 0.15); border-color: #38bdf8; color: #38bdf8; font-size: 0.78rem; cursor: pointer;" onclick="pushMasterSnapshotToCloud(false)" title="ส่งข้อมูลปัจจุบันขึ้นเป็น Master Snapshot บน Cloud">
+          ☁️ ซิงก์ขึ้น Cloud
+        </button>
+        <button type="button" class="ep-nav-btn" style="background: rgba(34, 197, 94, 0.15); border-color: #22c55e; color: #4ade80; font-size: 0.78rem; cursor: pointer;" onclick="pullMasterSnapshotFromCloud(false)" title="ดึงข้อมูลสดล่าสุดจาก Cloud มาอัปเดตทุกเมนู">
+          🔄 ดึงสดจาก Cloud
+        </button>
+
         <!-- QUICK PORTALS DROPDOWN -->
         <div class="ep-dropdown">
           <button type="button" class="ep-dropdown-btn">

@@ -56,6 +56,14 @@
       }).catch(e => console.warn('[Booking Cloud Sync] Initial settings sync warning:', e));
     }
 
+    // [UNIVERSAL OMNI-SYNC MESH]: รับฟัง Real-time Mesh Event จากทุกอุปกรณ์และหน้าจอ
+    window.addEventListener('eventpay:sync_updated', (e) => {
+      try {
+        renderTiers();
+        updateBookingSummary();
+      } catch (err) {}
+    });
+
     // คีย์ลัดสลับโหมด Alt+T สำหรับผู้ดูแลระบบ
     window.addEventListener('keydown', function (e) {
       if (e.altKey && (e.key === 't' || e.key === 'T')) {

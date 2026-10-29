@@ -109,6 +109,10 @@
         if (typeof fetch !== 'undefined') {
           this.checkMasterConnection();
         }
+        // [UNIVERSAL OMNI-SYNC ENGINE]: เริ่มต้น Heartbeat Poller ซิงก์ข้อมูล 4 แหล่ง อัตโนมัติ 100%
+        setTimeout(() => {
+          this._startCloudHeartbeatPoller();
+        }, 150);
       }
     }
 
@@ -221,8 +225,9 @@
 
       // [UNIVERSAL CLOUD REALTIME SYNC]: ส่งสัญญาณล้างข้อมูลขึ้น Firestore Cloud เพื่อให้มือถือและทุกอุปกรณ์รีเซ็ตพร้อมกัน
       try {
-        if (typeof EventPayFirebase !== 'undefined' && typeof EventPayFirebase.broadcastClearTransactionsToCloud === 'function') {
-          EventPayFirebase.broadcastClearTransactionsToCloud(nowCleared).catch(e => console.warn('[DB] Clear cloud broadcast warning:', e));
+        if (clearedBy !== 'AUTO-CLOUD-SYNC' && typeof EventPayFirebase !== 'undefined' && typeof EventPayFirebase.broadcastClearTransactionsToCloud === 'function') {
+          const clearedData = JSON.parse(this.exportJSON()).data;
+          EventPayFirebase.broadcastClearTransactionsToCloud(nowCleared, clearedData).catch(e => console.warn('[DB] Clear cloud broadcast warning:', e));
         }
       } catch (eCloudBroadcast) {}
 
@@ -706,6 +711,216 @@
     }
 
     /**
+     * นำเข้าและแทนที่ฐานข้อมูลจาก Master Snapshot (Universal Cloud Auto-Heal & Replace)
+     * รองรับการซิงก์ครบทุกตารางจาก Cloud สู่เครื่องลูกข่าย (มือถือ, แท็บเล็ต, PC)
+     */
+    importSnapshot(snapshotData, options = {}) {
+      if (!snapshotData || typeof snapshotData !== 'object') return { success: false, message: 'Invalid snapshot data' };
+
+      const collections = [
+        'events', 'ticket_tiers', 'gates', 'staff',
+        'cash_sessions', 'cash_payouts', 'tickets',
+        'wristbands', 'orders', 'payments',
+        'audit_logs', 'security_incidents',
+        'revenue_categories', 'expense_categories', 'users',
+        'bank_accounts'
+      ];
+
+      let replacedCount = 0;
+      collections.forEach(col => {
+        if (snapshotData[col] && Array.isArray(snapshotData[col])) {
+          this._saveCollection(col, snapshotData[col]);
+          replacedCount += snapshotData[col].length;
+        } else if (options.clearIfEmpty && (col === 'orders' || col === 'tickets' || col === 'payments' || col === 'cash_payouts')) {
+          this._saveCollection(col, []);
+        }
+      });
+
+      // ซิงก์บัญชีธนาคารหลักและราคาบัตรให้เรียบร้อย
+      this._healLegacyBankAccounts();
+      this._healLegacyTicketTiers();
+
+      const ts = options.snapshotTimestamp || new Date().toISOString();
+      this._setItem('eventpay_last_imported_snapshot_at', ts);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('eventpay_last_imported_snapshot_at', ts);
+      }
+
+      return { success: true, replacedCount };
+    }
+
+    /**
+     * ดันภาพถ่ายฐานข้อมูลกลางทั้งหมดขึ้น Google Cloud Firestore (Omni-Sync Cloud Push)
+     */
+    async pushMasterSnapshotToCloud(silent = false) {
+      const adapter = (typeof EventPayFirebase !== 'undefined') ? EventPayFirebase : (typeof root !== 'undefined' && root.EventPayFirebase ? root.EventPayFirebase : null);
+      if (!adapter || typeof adapter.pushMasterSnapshotToCloud !== 'function') {
+        return { success: false, message: 'EventPayFirebase adapter not found' };
+      }
+      try {
+        const fullData = JSON.parse(this.exportJSON()).data;
+        const deviceId = (typeof window !== 'undefined' && window.location.protocol === 'file:') ? 'PC-EXPLORER' : 'DEVICE-OMNI';
+        const res = await adapter.pushMasterSnapshotToCloud(fullData, deviceId);
+        if (res && res.success) {
+          const now = res.timestamp || new Date().toISOString();
+          this._lastLocalPushTimestamp = now;
+          this._setItem('eventpay_last_imported_snapshot_at', now);
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('eventpay_last_imported_snapshot_at', now);
+          }
+          if (!silent) console.log('[DB Omni-Sync] Master snapshot pushed to Cloud successfully at', now);
+        }
+        return res;
+      } catch (err) {
+        if (!silent) console.warn('[DB Omni-Sync] Push master snapshot warning:', err.message);
+        return { success: false, error: err.message };
+      }
+    }
+
+    /**
+     * ดึงภาพถ่ายฐานข้อมูลกลางทั้งหมดจาก Google Cloud Firestore ลงสู่เครื่อง (Omni-Sync Cloud Pull)
+     */
+    async pullMasterSnapshotFromCloud(force = false) {
+      const adapter = (typeof EventPayFirebase !== 'undefined') ? EventPayFirebase : (typeof root !== 'undefined' && root.EventPayFirebase ? root.EventPayFirebase : null);
+      if (!adapter || typeof adapter.fetchMasterSnapshotFromCloud !== 'function') {
+        return { success: false, message: 'EventPayFirebase adapter not found' };
+      }
+      try {
+        const snap = await adapter.fetchMasterSnapshotFromCloud();
+        if (!snap || !snap.data) {
+          return { success: false, message: 'No snapshot data on Cloud' };
+        }
+
+        const cloudTs = snap.snapshot_timestamp ? new Date(snap.snapshot_timestamp).getTime() : 0;
+        const localTsStr = this._getItem('eventpay_last_imported_snapshot_at') || (typeof localStorage !== 'undefined' ? localStorage.getItem('eventpay_last_imported_snapshot_at') : null);
+        const localTs = localTsStr ? new Date(localTsStr).getTime() : 0;
+
+        if (!force && cloudTs <= localTs) {
+          return { success: true, updated: false, message: 'Local database is already up-to-date' };
+        }
+
+        const importResult = this.importSnapshot(snap.data, {
+          snapshotTimestamp: snap.snapshot_timestamp,
+          clearIfEmpty: true
+        });
+
+        if (importResult.success) {
+          this._setItem('eventpay_last_imported_snapshot_at', snap.snapshot_timestamp);
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('eventpay_last_imported_snapshot_at', snap.snapshot_timestamp);
+          }
+          // ส่ง Custom Event ให้ทุก UI ในหน้าต่างนี้อัปเดตทันที
+          if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+            const ev = (typeof CustomEvent !== 'undefined')
+              ? new CustomEvent('eventpay:sync_updated', { detail: { action: 'cloud_snapshot_imported', timestamp: snap.snapshot_timestamp, source: 'CLOUD_OMNI_SYNC' } })
+              : { type: 'eventpay:sync_updated', detail: { action: 'cloud_snapshot_imported', timestamp: snap.snapshot_timestamp, source: 'CLOUD_OMNI_SYNC' } };
+            window.dispatchEvent(ev);
+          }
+          // แจ้งเตือน DB syncListeners
+          if (Array.isArray(this.syncListeners)) {
+            this.syncListeners.forEach(fn => {
+              try { fn({ action: 'cloud_snapshot_imported', timestamp: snap.snapshot_timestamp }); } catch (e) {}
+            });
+          }
+          console.log('[DB Omni-Sync] Cloud snapshot imported successfully:', importResult.replacedCount, 'records at', snap.snapshot_timestamp);
+          return { success: true, updated: true, records: importResult.replacedCount };
+        }
+        return importResult;
+      } catch (err) {
+        console.warn('[DB Omni-Sync] Pull master snapshot warning:', err.message);
+        return { success: false, error: err.message };
+      }
+    }
+
+    /**
+     * ตัวตรวจจับและซิงก์ข้อมูลอัตโนมัติในพื้นหลัง (Universal Background Cloud Heartbeat Poller)
+     */
+    _startCloudHeartbeatPoller() {
+      if (this._cloudPollerActive) return;
+      this._cloudPollerActive = true;
+
+      // ดึงข้อมูลครั้งแรกทันทีที่เปิดหน้าจอ (Instant Initial Hydration)
+      setTimeout(() => {
+        this.pullMasterSnapshotFromCloud(false).catch(() => {});
+      }, 300);
+
+      // วนลูปตรวจจับ Heartbeat ทุก 2.5 วินาที
+      setInterval(async () => {
+        try {
+          const adapter = (typeof EventPayFirebase !== 'undefined') ? EventPayFirebase : null;
+          if (!adapter || typeof adapter.fetchCloudSetting !== 'function') return;
+
+          // อ่านสถานะเบาบาง (Lightweight System State)
+          const state = await adapter.fetchCloudSetting('system_state');
+          if (!state) return;
+
+          // 1. ตรวจสอบสัญญาณล้างข้อมูล (System State Clear Signal)
+          if (state.last_cleared_at) {
+            const cloudClearedAt = new Date(state.last_cleared_at).getTime();
+            const localClearedAtStr = this._getItem('eventpay_last_cleared_at') || (typeof localStorage !== 'undefined' ? localStorage.getItem('eventpay_last_cleared_at') : null);
+            const localClearedAt = localClearedAtStr ? new Date(localClearedAtStr).getTime() : 0;
+            if (cloudClearedAt > localClearedAt) {
+              console.log('[DB Omni-Sync Poller] ตรวจพบสัญญาณล้างข้อมูลใหม่จาก Cloud:', state.last_cleared_at);
+              this.clearTransactionsData('AUTO-CLOUD-SYNC');
+              this._setItem('eventpay_last_cleared_at', state.last_cleared_at);
+              if (typeof localStorage !== 'undefined') {
+                localStorage.setItem('eventpay_last_cleared_at', state.last_cleared_at);
+              }
+              if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+                const ev = (typeof CustomEvent !== 'undefined')
+                  ? new CustomEvent('eventpay:sync_updated', { detail: { action: 'clear_transactions', timestamp: state.last_cleared_at } })
+                  : { type: 'eventpay:sync_updated', detail: { action: 'clear_transactions', timestamp: state.last_cleared_at } };
+                window.dispatchEvent(ev);
+              }
+              return;
+            }
+          }
+
+          // 2. ตรวจสอบว่ามี Snapshot ใหม่กว่าในเครื่องหรือไม่
+          if (state.last_snapshot_at) {
+            const cloudSnapAt = new Date(state.last_snapshot_at).getTime();
+            const localSnapAtStr = this._getItem('eventpay_last_imported_snapshot_at') || (typeof localStorage !== 'undefined' ? localStorage.getItem('eventpay_last_imported_snapshot_at') : null);
+            const localSnapAt = localSnapAtStr ? new Date(localSnapAtStr).getTime() : 0;
+            const lastLocalPush = this._lastLocalPushTimestamp ? new Date(this._lastLocalPushTimestamp).getTime() : 0;
+
+            if (cloudSnapAt > localSnapAt && cloudSnapAt > lastLocalPush) {
+              await this.pullMasterSnapshotFromCloud(false);
+            }
+          }
+        } catch (ePoller) {
+          // ป้องกัน error หลุดรบกวนระบบ
+        }
+      }, 2500);
+    }
+
+    /**
+     * หน่วงเวลาส่งข้อมูลขึ้น Cloud อัตโนมัติเมื่อเกิดการเปลี่ยนแปลงข้อมูล (Debounced Reactive Auto-Push)
+     */
+    _scheduleCloudAutoSync(collection, action, record) {
+      const syncableCols = [
+        'orders', 'tickets', 'payments', 'cash_payouts', 'cash_sessions',
+        'security_incidents', 'ticket_tiers', 'bank_accounts', 'events', 'gates', 'staff'
+      ];
+      if (!syncableCols.includes(collection)) return;
+
+      // ส่งสัญญาณแจ้งหน้าจอเดียวกันทันทีแบบเรียลไทม์ 0ms
+      if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+        const ev = (typeof CustomEvent !== 'undefined')
+          ? new CustomEvent('eventpay:sync_updated', { detail: { action, collection, record, source: 'local_mutation' } })
+          : { type: 'eventpay:sync_updated', detail: { action, collection, record, source: 'local_mutation' } };
+        window.dispatchEvent(ev);
+      }
+
+      // หน่วงเวลา 400ms เพื่อรวบยอดคำสั่งซื้อและตั๋วหลายใบแล้วดันขึ้น Cloud ทีเดียว
+      if (this._cloudSyncTimer) {
+        clearTimeout(this._cloudSyncTimer);
+      }
+      this._cloudSyncTimer = setTimeout(() => {
+        this.pushMasterSnapshotToCloud(true);
+      }, 400);
+    }
+
+    /**
      * ดึง URL ของ API แม่ข่ายอย่างชาญฉลาด (Universal Origin API Resolver)
      * รองรับทั้ง file:/// (Windows Explorer), http://localhost:8080 (Browser), และ Cloud
      */
@@ -748,6 +963,7 @@
       });
       this._saveCollection('bank_accounts', accounts);
       this.logAudit('BANK_SET_ACTIVE', 'FINANCE', `เปิดใช้งานบัญชีหลัก: ${accountId}`, 'USER-ADMIN');
+      this._scheduleCloudAutoSync('bank_accounts', 'update', { account_id: accountId });
       return true;
     }
 
@@ -964,6 +1180,7 @@
       const items = this._loadCollection(collection);
       items.push(record);
       this._saveCollection(collection, items);
+      this._scheduleCloudAutoSync(collection, 'insert', record);
       return record;
     }
 
@@ -975,6 +1192,7 @@
 
       items[index] = { ...items[index], ...updates };
       this._saveCollection(collection, items);
+      this._scheduleCloudAutoSync(collection, 'update', items[index]);
       return items[index];
     }
 
@@ -984,8 +1202,9 @@
       const index = items.findIndex(item => String(item[key]) === String(id));
       if (index === -1) return false;
 
-      items.splice(index, 1);
+      const deleted = items.splice(index, 1)[0];
       this._saveCollection(collection, items);
+      this._scheduleCloudAutoSync(collection, 'delete', deleted);
       return true;
     }
 
@@ -1783,7 +2002,8 @@
         'cash_sessions', 'cash_payouts', 'tickets',
         'wristbands', 'orders', 'payments',
         'audit_logs', 'security_incidents',
-        'revenue_categories', 'expense_categories', 'users'
+        'revenue_categories', 'expense_categories', 'users',
+        'bank_accounts'
       ];
       const backup = {
         exportedAt: new Date().toISOString(),
