@@ -86,23 +86,48 @@ function parseBankEmailText(text, subject = '', from = '') {
 }
 
 /**
- * ส่งคำสั่ง IMAP ไปยัง Server
+ * ส่งคำสั่ง IMAP ไปยัง Server อย่างปลอดภัย (Safe Command Execution)
  */
 function sendImapCommand(socket, command) {
   const tag = 'A' + String(tagCounter++).padStart(4, '0');
   const cmdLine = `${tag} ${command}\r\n`;
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
+    if (!socket || socket.destroyed) {
+      return resolve({ tag, raw: '', ok: false });
+    }
     let responseData = '';
     const onData = (chunk) => {
       const str = chunk.toString('utf8');
       responseData += str;
       if (responseData.includes(`${tag} OK`) || responseData.includes(`${tag} NO`) || responseData.includes(`${tag} BAD`)) {
-        socket.removeListener('data', onData);
+        cleanup();
         resolve({ tag, raw: responseData, ok: responseData.includes(`${tag} OK`) });
       }
     };
+    const onError = (err) => {
+      cleanup();
+      resolve({ tag, raw: err.message, ok: false });
+    };
+    const onClose = () => {
+      cleanup();
+      resolve({ tag, raw: 'Socket Closed', ok: false });
+    };
+    function cleanup() {
+      try {
+        socket.removeListener('data', onData);
+        socket.removeListener('error', onError);
+        socket.removeListener('close', onClose);
+      } catch (e) {}
+    }
     socket.on('data', onData);
-    socket.write(cmdLine);
+    socket.once('error', onError);
+    socket.once('close', onClose);
+    try {
+      socket.write(cmdLine);
+    } catch (e) {
+      cleanup();
+      resolve({ tag, raw: e.message, ok: false });
+    }
   });
 }
 
@@ -120,7 +145,24 @@ async function connectAndListen(cfg, onPayment) {
       activeSocket = socket;
     });
 
-    socket.setTimeout(30000); // 30s timeout
+    // ดักจับ Error และ Event บน Socket ทันที เพื่อป้องกัน unhandled error event (ECONNRESET) จากการตัดการเชื่อมต่อของ Gmail
+    socket.on('error', (err) => {
+      console.warn(`⚠️ [Email Bank Listener Socket Error]: ${err.message} (${err.code || 'ERR'})`);
+      scheduleReconnect(cfg, onPayment);
+    });
+
+    socket.on('close', (hadError) => {
+      if (isRunning && (!activeSocket || activeSocket.destroyed)) {
+        console.log(`📡 [Email Bank Listener] การเชื่อมต่อ TLS ถูกปิด (hadError: ${hadError})`);
+        scheduleReconnect(cfg, onPayment);
+      }
+    });
+
+    socket.setTimeout(60000); // 60s timeout
+    socket.on('timeout', () => {
+      console.warn(`⚠️ [Email Bank Listener] Socket Timeout (60s), กำลังรีเฟรชการเชื่อมต่อ...`);
+      try { socket.destroy(); } catch (e) {}
+    });
 
     // รอต้อนรับจากเซิร์ฟเวอร์
     await new Promise((resolve) => {
@@ -211,19 +253,26 @@ function startPollingLoop(socket, cfg, onPayment) {
   }, intervalMs);
 }
 
+let reconnectTimer = null;
+
 /**
- * กำหนดการเชื่อมต่อใหม่เมื่อหลุด (Auto-Reconnect)
+ * กำหนดการเชื่อมต่อใหม่เมื่อหลุด (Safe Debounced Auto-Reconnect)
  */
 function scheduleReconnect(cfg, onPayment) {
   if (!isRunning) return;
-  if (pollTimer) clearInterval(pollTimer);
+  if (reconnectTimer) return;
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
   if (activeSocket && !activeSocket.destroyed) {
     try { activeSocket.destroy(); } catch (e) {}
   }
   activeSocket = null;
 
   console.log(`🔄 [Email Bank Listener] จะพยายามเชื่อมต่อใหม่ใน 5 วินาที...`);
-  setTimeout(() => {
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
     if (isRunning) {
       connectAndListen(cfg, onPayment);
     }

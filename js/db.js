@@ -211,6 +211,13 @@
         });
       }
 
+      // บันทึกเวลาที่ล้างข้อมูลลงในระบบ เพื่อเป็นเกราะป้องกันไม่ให้ออเดอร์เก่าถูกดึงกลับมาทับ
+      const nowCleared = new Date().toISOString();
+      this._setItem('eventpay_last_cleared_at', nowCleared);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('eventpay_last_cleared_at', nowCleared);
+      }
+
       // บันทึก Audit Log รายการแรกของการล้างข้อมูล
       try {
         this.logAudit('CLEAR_TRANSACTIONS', 'SYSTEM', `ล้างข้อมูลธุรกรรมทั้งหมด ${clearedCount} รายการ โดยสิทธิ์ผู้ดูแลระบบสูงสุด`, clearedBy);
@@ -591,20 +598,8 @@
         { tier_id: 'TIER-TEST-1', name: 'บัตรทดสอบโอนจริง 1 บาท (KBank)', price: 1.00, quota: 500, sold: 0 }
       ];
 
-      // ตรวจสอบและเติมบัตรทดสอบโอนจริง 1 บาท และ 5 บาท หากยังไม่มีในระบบ
-      let tiersModified = false;
-      ['TIER-TEST-5', 'TIER-TEST-1'].forEach(testId => {
-        if (!tiers.find(t => t.tier_id === testId)) {
-          const off = officialTiers.find(o => o.tier_id === testId);
-          if (off) {
-            tiers.push({ ...off });
-            tiersModified = true;
-          }
-        }
-      });
-      if (tiersModified) {
-        this._saveCollection('ticket_tiers', tiers);
-      }
+      // เคารพสิทธิ์การลบ/แก้ไขประเภทราคาบัตรของแอดมินหน้างาน ไม่แอบยัดเยียดบัตรทดสอบกลับเข้ามาซ้ำ
+      // (ลบรายการบัตรทดสอบแล้วจะหายไปอย่างถาวร 100% ไม่เด้งกลับมาอีก)
 
       // ตรวจสอบว่ามีราคาผิดเพี้ยนรุ่นเก่าหรือไม่ (VIP === 5000 หรือ REG === 2500 หรือขาด TIER-GEN)
       const vip = tiers.find(t => t.tier_id === 'TIER-VIP');
@@ -1462,6 +1457,9 @@
       tickets.forEach(t => {
         this.update('tickets', t.ticket_id, { is_void: false });
       });
+      if (typeof EventPayFirebase !== 'undefined' && typeof EventPayFirebase.updateCloudOrderStatus === 'function') {
+        EventPayFirebase.updateCloudOrderStatus(payment.order_id, 'PAID', 'Confirmed by Finance');
+      }
       this.logAudit('CONFIRM_PAYMENT', 'FINANCE', `ฝ่ายการเงินยืนยันการชำระเงิน ${paymentId} (Order: ${payment.order_id}) สำเร็จ`, verifierId);
       return updatedPayment;
     }
@@ -1479,6 +1477,9 @@
       tickets.forEach(t => {
         this.update('tickets', t.ticket_id, { is_void: true });
       });
+      if (typeof EventPayFirebase !== 'undefined' && typeof EventPayFirebase.updateCloudOrderStatus === 'function') {
+        EventPayFirebase.updateCloudOrderStatus(payment.order_id, 'VOID', reason);
+      }
       this._recordIncident('FAKE_SLIP', null, null, 'FINANCE-ADMIN', '', `ฝ่ายการเงินตรวจพบสลิปปลอม/ระงับสิทธิ์คำสั่งซื้อ ${payment.order_id} (เหตุผล: ${reason})`);
       this.logAudit('REJECT_PAYMENT', 'FINANCE', `ฝ่ายการเงินปฏิเสธ/ระงับการชำระเงิน ${paymentId} (Order: ${payment.order_id}) เหตุผล: ${reason}`, verifierId);
       return updatedPayment;

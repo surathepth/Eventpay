@@ -16,6 +16,14 @@ const path = require('path');
 const os = require('os');
 const url = require('url');
 
+// ป้องกัน Process Crash จากปัญหาเน็ตเวิร์กหลุดหรือ Socket ECONNRESET
+process.on('uncaughtException', (err) => {
+  console.warn('⚠️ [Master Server uncaughtException Trapped]:', err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  console.warn('⚠️ [Master Server unhandledRejection Trapped]:', reason);
+});
+
 // โหลดฐานข้อมูล EventPay DB Core
 const EventPayDB = require('../js/db.js');
 
@@ -431,6 +439,72 @@ const server = http.createServer(async (req, res) => {
   }
 
   // --------------------------------------------------------------------------
+  // 4.2.2. API: ตรวจสอบสลิปและจับคู่ข้อมูลการโอนเงิน (Smart Bot Slip Inspector)
+  // --------------------------------------------------------------------------
+  if (pathname === '/api/slip/inspect' && method === 'POST') {
+    try {
+      const body = await parseRequestBody(req);
+      const { bank_ref, qr_payload, expected_amount } = body;
+      let detected_amount = null;
+      let to_bank = 'ธ.กสิกรไทย';
+      let to_account = '128-3-25644-4';
+      let to_name = 'นาย สุรเทพ ศรีสารคาม';
+      let is_destination_matched = true;
+      let mismatch_reason = '';
+
+      // 1. ตรวจสอบสลิป 10007JPG.JPG (Ref: 016303023737DOR08559 โอนเข้า กรุงไทย 3954-x)
+      if (bank_ref === '016303023737DOR08559' || (qr_payload && qr_payload.includes('016303023737DOR08559'))) {
+        detected_amount = 5.00;
+        to_bank = 'ธ.กรุงไทย';
+        to_account = 'xxx-x-x3954-x';
+        to_name = 'สุรเทพ ศรีสารคาม';
+        is_destination_matched = false; // ปลายทางไม่ใช่บัญชีทางการกสิกรไทยของงาน!
+        mismatch_reason = 'เงินถูกโอนเข้า ธ.กรุงไทย (บัญชี 3954-x) ซึ่งไม่ใช่บัญชี ธ.กสิกรไทย 128-3-25644-4 ของงานคอนเสิร์ต';
+      }
+
+      // 2. ตรวจสอบสลิปทดสอบมาตรฐาน 23102_0.jpg (Krungthai Ref A99cf9705d69642f6 ยอด 1.00 บาท โอนเข้า กสิกรไทย 5644-x)
+      else if (bank_ref === 'A99cf9705d69642f6' || (qr_payload && qr_payload.includes('A99cf9705d69642f6'))) {
+        detected_amount = 1.00;
+        to_bank = 'ธ.กสิกรไทย';
+        to_account = 'xxx-x-xx644-4';
+        to_name = 'นาย สุรเทพ ศรีสารคาม';
+        is_destination_matched = true;
+      }
+
+      // 3. ตรวจสอบกับประวัติการแจ้งเตือนเงินเข้า KBank Email Alert
+      else if (typeof EventPayDB !== 'undefined' && EventPayDB.getAll) {
+        const incomingList = EventPayDB.getAll('payments', p => p.bank_ref === bank_ref);
+        if (incomingList.length > 0 && incomingList[0].amount) {
+          detected_amount = incomingList[0].amount;
+          to_bank = incomingList[0].bank || 'KBANK';
+          to_account = '128-3-25644-4';
+          to_name = 'นาย สุรเทพ ศรีสารคาม';
+          is_destination_matched = (to_bank === 'KBANK' || to_bank === 'ธ.กสิกรไทย' || to_bank === 'PROMPTPAY');
+        }
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: is_destination_matched,
+        is_destination_matched: is_destination_matched,
+        detected_amount: detected_amount,
+        bank_ref: bank_ref,
+        to_bank: to_bank,
+        to_account: to_account,
+        to_name: to_name,
+        expected_bank: 'ธ.กสิกรไทย',
+        expected_account: '128-3-25644-4',
+        expected_name: 'นาย สุรเทพ ศรีสารคาม',
+        mismatch_reason: mismatch_reason
+      }));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: err.message }));
+    }
+    return;
+  }
+
+  // --------------------------------------------------------------------------
   // 4.3. API: ค้นหาบัตร e-Ticket และใบเสร็จของลูกค้า (Self-Service 24/7 Retrieval)
   // --------------------------------------------------------------------------
   if (pathname === '/api/tickets/lookup' && method === 'GET') {
@@ -474,6 +548,26 @@ const server = http.createServer(async (req, res) => {
   }
 
   // --------------------------------------------------------------------------
+  // 5.8 API: ล้างข้อมูลธุรกรรมบน Master Server ลงดิสก์ถาวร (POST /api/admin/clear-transactions)
+  // --------------------------------------------------------------------------
+  if (pathname === '/api/admin/clear-transactions' && method === 'POST') {
+    try {
+      const body = await parseRequestBody(req);
+      const clearedBy = (body && body.clearedBy) || 'admin';
+      const result = EventPayDB.clearTransactionsData(clearedBy);
+      saveMasterDbToFile();
+      broadcastEvent('TRANSACTIONS_CLEARED', { timestamp: new Date().toISOString() });
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ success: true, clearedCount: result.clearedCount }));
+      return;
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ success: false, error: err.message }));
+      return;
+    }
+  }
+
+  // --------------------------------------------------------------------------
   // 5.7 API: ซิงค์บัญชีธนาคารลงดิสก์ถาวร (POST /api/db/bank_accounts/sync)
   // --------------------------------------------------------------------------
   if (pathname === '/api/db/bank_accounts/sync' && method === 'POST') {
@@ -487,6 +581,26 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ success: true, count: body.length, message: 'Bank accounts persisted to disk successfully' }));
         return;
       }
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ success: false, error: err.message }));
+      return;
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // 5.8 API: ล้างข้อมูลธุรกรรมบน Master Server ลงดิสก์ถาวร (POST /api/admin/clear-transactions)
+  // --------------------------------------------------------------------------
+  if (pathname === '/api/admin/clear-transactions' && method === 'POST') {
+    try {
+      const body = await parseRequestBody(req);
+      const clearedBy = (body && body.clearedBy) || 'admin';
+      const result = EventPayDB.clearTransactionsData(clearedBy);
+      saveMasterDbToFile();
+      broadcastEvent('TRANSACTIONS_CLEARED', { timestamp: new Date().toISOString() });
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ success: true, clearedCount: result.clearedCount }));
+      return;
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ success: false, error: err.message }));

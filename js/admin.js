@@ -66,12 +66,108 @@
     if (autoRefreshTimer) clearInterval(autoRefreshTimer);
     autoRefreshTimer = setInterval(() => {
       updatePendingSlipsBadge();
+      syncOrdersFromCloudToLocal();
       if (currentTab === 'dashboard') {
         renderDashboardData();
       } else if (currentTab === 'salesReport') {
         renderSalesReport();
       }
     }, 3000);
+
+    // ดึงข้อมูลคำสั่งซื้อจาก Cloud ทันทีเมื่อเปิดหน้า Admin
+    syncOrdersFromCloudToLocal();
+  }
+
+  // ==========================================================================
+  // [CLOUD AUTO-SYNC]: ซิงก์คำสั่งซื้อจาก Google Cloud Firestore สู่ Admin Dashboard แบบ Real-Time
+  // แก้ปัญหาคำสั่งซื้อจากมือถือ (GitHub Pages) ไม่โผล่ในหน้าต่างแอดมิน PC 100%
+  // ==========================================================================
+  let isSyncingCloud = false;
+  async function syncOrdersFromCloudToLocal() {
+    if (isSyncingCloud) return;
+    if (typeof EventPayFirebase === 'undefined' || typeof EventPayFirebase.fetchCloudOrders !== 'function') return;
+
+    isSyncingCloud = true;
+    try {
+      const cloudOrders = await EventPayFirebase.fetchCloudOrders();
+      if (Array.isArray(cloudOrders) && cloudOrders.length > 0) {
+        let hasNewOrder = false;
+        let hasUpdatedOrder = false;
+        const lastClearedAt = (typeof localStorage !== 'undefined') ? localStorage.getItem('eventpay_last_cleared_at') : null;
+
+        cloudOrders.forEach(co => {
+          if (!co || !co.order_id) return;
+          // [LAST CLEARED SHIELD]: หากออเดอร์ใน Cloud สร้างก่อนเวลาที่แอดมินล้างข้อมูล ให้ข้ามทันที ไม่ดึงกลับมาทับ
+          if (lastClearedAt && co.created_at && new Date(co.created_at) < new Date(lastClearedAt)) {
+            return;
+          }
+          const localOrder = EventPayDB.get('orders', co.order_id);
+          if (!localOrder) {
+            // ถอดรหัส items_json และ tickets_json
+            if (co.items_json && (!co.items || co.items.length === 0)) {
+              try { co.items = JSON.parse(co.items_json); } catch (e) {}
+            }
+            EventPayDB.insert('orders', co);
+            hasNewOrder = true;
+
+            // บันทึกตั๋วเข้าฐานข้อมูลในเครื่อง
+            if (co.tickets_json) {
+              try {
+                const tkts = JSON.parse(co.tickets_json);
+                if (Array.isArray(tkts)) {
+                  tkts.forEach(t => {
+                    if (t && t.ticket_id && !EventPayDB.get('tickets', t.ticket_id)) {
+                      EventPayDB.insert('tickets', t);
+                    }
+                  });
+                }
+              } catch (e) {}
+            }
+
+            // บันทึกรายการชำระเงิน
+            if (co.slip_url) {
+              const existingPay = EventPayDB.getAll('payments', p => p.order_id === co.order_id)[0];
+              if (!existingPay) {
+                EventPayDB.insert('payments', {
+                  payment_id: 'PAY-CLOUD-' + co.order_id,
+                  order_id: co.order_id,
+                  amount: co.total_amount,
+                  payment_method: co.payment_method || 'TRANSFER',
+                  slip_url: co.slip_url,
+                  bank_ref: co.bank_ref || '',
+                  created_at: co.created_at || new Date().toISOString()
+                });
+              }
+            }
+          } else {
+            // อัปเดตสถานะถ้ามีการเปลี่ยนแปลง
+            if (localOrder.payment_status !== co.payment_status) {
+              EventPayDB.update('orders', co.order_id, {
+                payment_status: co.payment_status,
+                notes: co.notes || localOrder.notes
+              });
+              hasUpdatedOrder = true;
+            }
+          }
+        });
+
+        if (hasNewOrder || hasUpdatedOrder) {
+          updatePendingSlipsBadge();
+          if (currentTab === 'dashboard') {
+            renderDashboardData();
+          } else if (currentTab === 'salesReport') {
+            renderSalesReport();
+          }
+          if (hasNewOrder && typeof AudioAlertEngine !== 'undefined' && AudioAlertEngine.playChime) {
+            AudioAlertEngine.playChime();
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[Admin] Cloud sync error:', err);
+    } finally {
+      isSyncingCloud = false;
+    }
   }
 
   async function updateAdminNetBadge() {
@@ -1228,6 +1324,15 @@
       tickets.forEach(t => EventPayDB.update('tickets', t.ticket_id, { is_void: false }));
     }
 
+    // [UNIVERSAL CLOUD QUAD-SYNC]: ซิงก์สถานะชำระเงิน (PAID) ขึ้น Google Cloud Firestore ทันที
+    try {
+      if (typeof EventPayFirebase !== 'undefined' && typeof EventPayFirebase.updateCloudOrderStatus === 'function') {
+        EventPayFirebase.updateCloudOrderStatus(orderId, 'PAID', 'Confirmed by Admin Finance');
+      }
+    } catch (eCloud) {
+      console.warn('[Admin] Cloud approve sync error:', eCloud);
+    }
+
     alert(`✅ ยืนยันการเงินสำเร็จ!\nคำสั่งซื้อ ${orderId} ได้รับการอนุมัติแล้ว\nระบบได้ออกใบเสร็จรับเงินและส่งตั๋ว e-Ticket ไปยังหน้าจอลูกค้าเรียบร้อยแล้วค่ะ`);
 
     if (closeModalAfter) {
@@ -1269,6 +1374,15 @@
         body: JSON.stringify({ orderId, paymentId, reason, verifierId: currentUser })
       }).catch(e => console.warn('[Admin] Server void sync non-blocking error:', e));
     } catch (eSync) {}
+
+    // [UNIVERSAL CLOUD QUAD-SYNC]: ซิงก์สถานะระงับโมฆะ (VOID) ขึ้น Google Cloud Firestore ทันที
+    try {
+      if (typeof EventPayFirebase !== 'undefined' && typeof EventPayFirebase.updateCloudOrderStatus === 'function') {
+        EventPayFirebase.updateCloudOrderStatus(orderId, 'VOID', reason);
+      }
+    } catch (eCloud) {
+      console.warn('[Admin] Cloud void sync error:', eCloud);
+    }
 
     alert(`🚨 ระงับคำสั่งซื้อ ${orderId} เรียบร้อยแล้ว!\nบัตรคอนเสิร์ตทั้งหมดถูกล็อกเป็นโมฆะ หากผู้ต้องสงสัยนำไปสแกนที่ Kiosk หน้าประตู ระบบจะลั่นไซเรนเตือนภัยทันทีค่ะ`);
 
@@ -2661,6 +2775,26 @@
 
     try {
       const result = EventPayDB.clearTransactionsData(user.username || 'admin');
+
+      // ซิงก์คำสั่งล้างข้อมูลธุรกรรมไปยัง Master Server บนดิสก์ถาวร
+      try {
+        const clearServerUrl = (typeof EventPayDB !== 'undefined' && typeof EventPayDB.getApiUrl === 'function')
+          ? EventPayDB.getApiUrl('/api/admin/clear-transactions')
+          : ((typeof window !== 'undefined' && window.location.protocol === 'file:') ? 'http://localhost:8080/api/admin/clear-transactions' : '/api/admin/clear-transactions');
+        fetch(clearServerUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clearedBy: user.username || 'admin' })
+        }).catch(e => console.warn('[Admin] Server clear non-blocking:', e));
+      } catch (eServer) {}
+
+      // สั่งล้างข้อมูลคำสั่งซื้อเก่าบน Google Cloud Firestore พร้อมกัน
+      try {
+        if (typeof EventPayFirebase !== 'undefined' && typeof EventPayFirebase.clearAllCloudOrders === 'function') {
+          EventPayFirebase.clearAllCloudOrders();
+        }
+      } catch (eCloud) {}
+
       closeClearTransactionsModal();
       alert(`✅ ล้างข้อมูลธุรกรรมสำเร็จเรียบร้อยแล้ว!\n- ล้างข้อมูลแล้ว ${result.clearedCount} รายการ\n- รีเซ็ตยอดจำหน่ายในผังประเภทตั๋ว (Ticket Tiers) เป็น 0\n- ข้อมูลระบบหลัก (Admin/Staff, บัญชีธนาคาร, ประตู Kiosk) ยังคงอยู่ครบ 100%`);
 

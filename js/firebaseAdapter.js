@@ -79,6 +79,187 @@
     }
 
     /**
+     * แปลง Object ทั่วไปเป็น Firestore Typed Fields
+     */
+    _toFirestoreFields(obj) {
+      const fields = {};
+      for (const [k, v] of Object.entries(obj)) {
+        if (v === undefined || v === null) continue;
+        if (typeof v === 'string') fields[k] = { stringValue: v };
+        else if (typeof v === 'number') fields[k] = { doubleValue: v };
+        else if (typeof v === 'boolean') fields[k] = { booleanValue: v };
+        else if (Array.isArray(v)) {
+          fields[k] = {
+            arrayValue: {
+              values: v.map(item => {
+                if (typeof item === 'object') return { mapValue: { fields: this._toFirestoreFields(item) } };
+                return { stringValue: String(item) };
+              })
+            }
+          };
+        } else if (typeof v === 'object') {
+          fields[k] = { mapValue: { fields: this._toFirestoreFields(v) } };
+        }
+      }
+      return fields;
+    }
+
+    /**
+     * แปลง Firestore Typed Fields กลับเป็น Object ทั่วไป
+     */
+    _fromFirestoreFields(fields) {
+      const obj = {};
+      if (!fields) return obj;
+      for (const [k, v] of Object.entries(fields)) {
+        if (v.stringValue !== undefined) obj[k] = v.stringValue;
+        else if (v.doubleValue !== undefined) obj[k] = parseFloat(v.doubleValue);
+        else if (v.integerValue !== undefined) obj[k] = parseInt(v.integerValue, 10);
+        else if (v.booleanValue !== undefined) obj[k] = v.booleanValue;
+        else if (v.arrayValue !== undefined) {
+          obj[k] = (v.arrayValue.values || []).map(item => {
+            if (item.mapValue) return this._fromFirestoreFields(item.mapValue.fields);
+            return item.stringValue !== undefined ? item.stringValue : (item.doubleValue !== undefined ? item.doubleValue : item.booleanValue);
+          });
+        } else if (v.mapValue !== undefined) {
+          obj[k] = this._fromFirestoreFields(v.mapValue.fields);
+        }
+      }
+      return obj;
+    }
+
+    /**
+     * ซิงก์คำสั่งซื้อและรูปสลิปขึ้น Google Cloud Firestore REST API แบบ Real-time
+     * รองรับการทำงานจากทุกอุปกรณ์ และทุก Origin (รวมทั้ง GitHub Pages surathepth.github.io)
+     */
+    async syncOrderToCloud(order, tickets = []) {
+      if (!order || !order.order_id) return { success: false, message: 'Invalid order' };
+      const projectId = (this.config && this.config.projectId) || DEFAULT_FIREBASE_CONFIG.projectId;
+      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/orders?documentId=${encodeURIComponent(order.order_id)}`;
+
+      const orderPayload = {
+        order_id: order.order_id,
+        customer_name: order.customer_name || '',
+        customer_phone: order.customer_phone || '',
+        payment_method: order.payment_method || 'TRANSFER',
+        payment_status: order.payment_status || 'PAID',
+        total_amount: parseFloat(order.total_amount) || 0,
+        bank_ref: order.bank_ref || '',
+        slip_url: order.slip_url || '',
+        created_at: order.created_at || new Date().toISOString(),
+        shift_id: order.shift_id || 'SHIFT-ONLINE-SELF',
+        tickets_count: (tickets && tickets.length) || (order.items ? order.items.reduce((s, i) => s + (i.quantity || 0), 0) : 1),
+        items_json: JSON.stringify(order.items || []),
+        tickets_json: JSON.stringify(tickets || [])
+      };
+
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fields: this._toFirestoreFields(orderPayload) })
+        });
+
+        if (!res.ok) {
+          // หากมีอยู่แล้ว ให้ใช้ PATCH เพื่ออัปเดตแทน
+          const patchUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/orders/${encodeURIComponent(order.order_id)}`;
+          await fetch(patchUrl, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: this._toFirestoreFields(orderPayload) })
+          });
+        }
+
+        this.lastSync = new Date().toISOString();
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(STORAGE_KEY_LAST_SYNC, this.lastSync);
+        }
+        return { success: true, order_id: order.order_id };
+      } catch (err) {
+        console.warn('[FirebaseAdapter] syncOrderToCloud non-blocking warning:', err.message);
+        return { success: false, error: err.message };
+      }
+    }
+
+    /**
+     * ดึงคำสั่งซื้อล่าสุดจาก Firestore Cloud เพื่อให้ Admin Bot บน PC มองเห็นคำสั่งซื้อจากมือถือทันที
+     */
+    async fetchCloudOrders() {
+      const projectId = (this.config && this.config.projectId) || DEFAULT_FIREBASE_CONFIG.projectId;
+      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/orders?pageSize=100`;
+
+      try {
+        const res = await fetch(url, { cache: 'no-cache' });
+        if (!res.ok) return [];
+        const json = await res.json();
+        if (!json.documents || !Array.isArray(json.documents)) return [];
+
+        return json.documents.map(doc => {
+          const data = this._fromFirestoreFields(doc.fields);
+          return data;
+        });
+      } catch (err) {
+        console.warn('[FirebaseAdapter] fetchCloudOrders warning:', err.message);
+        return [];
+      }
+    }
+
+    /**
+     * อัปเดตสถานะคำสั่งซื้อบน Cloud (เช่น ฝ่ายบัญชีกด VOID สลิปปลอม)
+     */
+    async updateCloudOrderStatus(orderId, paymentStatus, notes = '') {
+      if (!orderId) return;
+      const projectId = (this.config && this.config.projectId) || DEFAULT_FIREBASE_CONFIG.projectId;
+      const patchUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/orders/${encodeURIComponent(orderId)}?updateMask.fieldPaths=payment_status&updateMask.fieldPaths=notes`;
+
+      try {
+        await fetch(patchUrl, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fields: {
+              payment_status: { stringValue: paymentStatus },
+              notes: { stringValue: notes }
+            }
+          })
+        });
+      } catch (err) {
+        console.warn('[FirebaseAdapter] updateCloudOrderStatus warning:', err);
+      }
+    }
+
+    /**
+     * ลบคำสั่งซื้อออกจาก Google Cloud Firestore
+     */
+    async deleteCloudOrder(orderId) {
+      if (!orderId) return;
+      const projectId = (this.config && this.config.projectId) || DEFAULT_FIREBASE_CONFIG.projectId;
+      const deleteUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/orders/${encodeURIComponent(orderId)}`;
+      try {
+        await fetch(deleteUrl, { method: 'DELETE' });
+      } catch (err) {
+        console.warn('[FirebaseAdapter] deleteCloudOrder error:', err);
+      }
+    }
+
+    /**
+     * ล้างคำสั่งซื้อทั้งหมดบน Cloud เมื่อแอดมินยืนยันการล้างข้อมูลธุรกรรม
+     */
+    async clearAllCloudOrders() {
+      try {
+        const orders = await this.fetchCloudOrders();
+        if (Array.isArray(orders)) {
+          for (const o of orders) {
+            if (o && o.order_id) {
+              await this.deleteCloudOrder(o.order_id);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[FirebaseAdapter] clearAllCloudOrders error:', err);
+      }
+    }
+
+    /**
      * ดำเนินการซิงก์ข้อมูลขึ้น Firebase Cloud
      * รองรับทั้งโหมดจำลอง (Simulated / Local Mock) และโหมดต่อ Firebase จริง
      */
