@@ -1348,6 +1348,10 @@
       return items;
     }
 
+    find(collection, filterFn = null) {
+      return this.getAll(collection, filterFn);
+    }
+
     get(collection, id, keyField = null) {
       const items = this._loadCollection(collection);
       const key = keyField || this._getDefaultKeyField(collection);

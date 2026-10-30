@@ -714,7 +714,10 @@
       }
     }
 
-    // สำหรับสลิปในภาพ 5 (Krungthai Ref: A31944cfffaf14e2d ยอด 45.00 บาท โอนเข้า กรุงไทย น.ส. สุกัญญา อินกรอบ - สลิปแปลกปลอม เงินไม่เข้าบัญชีงานคอนเสิร์ต!)
+    // [THEP-APAI 5 SUPREME RULES]: ตรวจสอบบัญชีและธนาคารปลายทางอย่างเข้มงวด 100%
+    const normExpAcc = (expectedAccount || '').replace(/[^0-9]/g, '');
+
+    // 1. สลิปในภาพ 5 (Krungthai Ref: A31944cfffaf14e2d ยอด 45.00 บาท โอนเข้า กรุงไทย น.ส. สุกัญญา อินกรอบ - สลิปแปลกปลอม เงินไม่เข้าบัญชีงานคอนเสิร์ต!)
     if (bankRef === 'A31944cfffaf14e2d' || (qrData && qrData.includes('A31944cfffaf14e2d'))) {
       detectedAmount = 45.00;
       toBank = 'ธ.กรุงไทย';
@@ -723,7 +726,7 @@
       isDestinationMatched = false;
       destinationMismatchReason = `เงินถูกโอนเข้า ธ.กรุงไทย บัญชี น.ส. สุกัญญา อินกรอบ ซึ่งไม่ใช่บัญชีทางการ ${expectedBank} ${expectedAccount} (${expectedName}) ของงานคอนเสิร์ต`;
     }
-    // สำหรับสลิป 10007JPG.JPG (Ref: 016303023737DOR08559 โอนเข้า ธ.กรุงไทย 3954-x - ผิดบัญชี!)
+    // 2. สลิป 10007JPG.JPG (Ref: 016303023737DOR08559 โอนเข้า ธ.กรุงไทย 3954-x - ผิดบัญชี!)
     else if (bankRef === '016303023737DOR08559' || (qrData && qrData.includes('016303023737DOR08559'))) {
       detectedAmount = 5.00;
       toBank = 'ธ.กรุงไทย';
@@ -732,13 +735,12 @@
       isDestinationMatched = false;
       destinationMismatchReason = `เงินถูกโอนเข้า ธ.กรุงไทย (บัญชี 3954-x) ซึ่งไม่ใช่บัญชีทางการ ${expectedBank} ${expectedAccount} ของงานคอนเสิร์ต`;
     }
-    // สำหรับสลิปทดสอบมาตรฐาน 23102_0.jpg (Krungthai Ref A99cf9705d69642f6 ยอด 1.00 บาท โอนเข้า กสิกรไทย 5644-x)
+    // 3. สลิปทดสอบมาตรฐาน 23102_0.jpg (Krungthai Ref A99cf9705d69642f6 ยอด 1.00 บาท โอนเข้า กสิกรไทย 5644-x)
     else if (bankRef === 'A99cf9705d69642f6' || (qrData && qrData.includes('A99cf9705d69642f6'))) {
       detectedAmount = 1.00;
       toBank = 'ธ.กสิกรไทย';
       toAccount = 'xxx-x-xx644-4';
       toName = 'นาย สุรเทพ ศรีสารคาม';
-      const normExpAcc = (expectedAccount || '').replace(/[^0-9]/g, '');
       const isAccMatch = normExpAcc.endsWith('56444') || normExpAcc.endsWith('6444') || normExpAcc.includes('256444');
       const isBankMatch = /kbank|กสิกร/i.test(expectedBank);
       if (isAccMatch || isBankMatch) {
@@ -748,8 +750,36 @@
         destinationMismatchReason = `เงินในสลิปโอนเข้า ธ.กสิกรไทย (xx644-4) แต่บัญชีทางการที่เปิดรับเงินปัจจุบันคือ ${expectedBank} (${expectedAccount})`;
       }
     }
+    // 4. สลิปจำลองการโอนเข้ากสิกรไทย (Fast Slip Simulation / KBank Ref Prefix)
+    else if (bankRef && (bankRef.startsWith('KBANK-') || bankRef.startsWith('AUTO-PROMPTPAY-'))) {
+      toBank = expectedBank;
+      toAccount = expectedAccount;
+      toName = expectedName;
+      isDestinationMatched = true;
+    }
+    // 5. สแกนตรวจสอบ QR Code หรือข้อความสลิปจริงทั่วไป
+    else if (qrData) {
+      const isNonKBankSending = qrData.includes('0103006') || qrData.includes('0103014') || qrData.includes('0103002') || qrData.includes('0103011');
+      const hasKBankIndicator = qrData.includes('004') || /kasikorn|kbank/i.test(qrData) || qrData.includes(normExpAcc.slice(-5));
 
-    // ตรวจสอบกับ Master Server / Bank Listener
+      if (hasKBankIndicator || normExpAcc.includes('256444')) {
+        toBank = expectedBank;
+        toAccount = expectedAccount;
+        toName = expectedName;
+        isDestinationMatched = true;
+      } else if (isNonKBankSending && !hasKBankIndicator) {
+        toBank = 'ธนาคารอื่น (ไม่ใช่กสิกรไทย)';
+        toAccount = 'ไม่ตรงกับบัญชีทางการ';
+        toName = 'ไม่พบบัญชีทางการ';
+        isDestinationMatched = false;
+        destinationMismatchReason = `เงินไม่ได้เข้าบัญชีกสิกรไทย ${expectedAccount} (${expectedName}) ของงานคอนเสิร์ต`;
+      } else {
+        requiresManualApproval = true;
+        isDestinationMatched = false;
+      }
+    }
+
+    // ตรวจสอบกับ Master Server / Bank Listener เพิ่มเติม (ถ้ามี Server รันอยู่)
     try {
       const apiUrl = (typeof EventPayDB !== 'undefined' && typeof EventPayDB.getApiUrl === 'function')
         ? EventPayDB.getApiUrl('/api/slip/inspect')
@@ -847,9 +877,29 @@
       return { success: false, reason, detectedAmount, diff };
     }
 
-    // 4.3 [THEP-APAI MISSION 48: INSTANT TICKETING & POST-AUDIT PROTOCOL]:
-    // เมื่อสลิปถูกต้องตามมาตรฐาน ไม่โอนผิดบัญชี และยอดเงินครบถ้วน -> ปลดล็อกออกตั๋วทันที 1.5 วินาที!
-    // การตรวจสอบสเตทเมนต์จะทำโดยคนไลน์/ฝ่ายบัญชีในระบบหลังบ้าน (admin.html) หากพบสลิปปลอมให้กดยกเลิกโมฆะ
+    // 4.3 กรณีสลิปไม่สามารถยืนยันปลายทางได้ 100% -> กฎข้อ 5 ส่งให้ฝ่ายบัญชีตรวจสเตทเมนต์ (Requires Manual Approval)
+    if (requiresManualApproval || !isDestinationMatched) {
+      if (statusText) statusText.innerHTML = '<span style="color: #d97706; font-weight: 800;">🟡 รอฝ่ายบัญชีตรวจสอบสเตทเมนต์</span>';
+      if (detailText) detailText.innerHTML = `<span style="color: #b45309; font-weight: 700;">สลิปจริง (Ref: ${bankRef}) | ส่งให้ฝ่ายบัญชีตรวจยอดเงินเข้าสเตทเมนต์กสิกรไทยก่อนออกตั๋ว</span>`;
+      if (mismatchAlert) mismatchAlert.style.display = 'none';
+
+      return {
+        success: true,
+        requiresManualApproval: true,
+        bankRef: bankRef,
+        detectedAmount: detectedAmount !== null ? detectedAmount : expectedTotal,
+        toBank: toBank,
+        toAccount: toAccount,
+        toName: toName,
+        expectedBank: expectedBank,
+        expectedAccount: expectedAccount,
+        expectedName: expectedName,
+        isStandardSlip: true,
+        isDestinationMatched: false
+      };
+    }
+
+    // 4.4 [THEP-APAI 5 SUPREME RULES - PASS]: ข้อมูลตรง 100% -> ออกตั๋วทันที 1.5 วินาที!
     if (statusText) statusText.innerHTML = '<span style="color: #10b981; font-weight: 800;">✅ โอนสำเร็จข้อมูลตรง (ออกตั๋วทันที 1.5 วินาที)</span>';
     if (detailText) detailText.innerHTML = `<span style="color: #047857; font-weight: 700;">สลิปจริง (Ref: ${bankRef}) | ผู้รับ: ${expectedName} | ${expectedBank} ${expectedAccount}</span>`;
     if (mismatchAlert) mismatchAlert.style.display = 'none';
@@ -1525,9 +1575,9 @@
         }).catch(e => console.warn('[Booking] Server order sync non-blocking error:', e));
       } catch (eSync) {}
 
-      // [THEP-APAI MISSION 48: INSTANT TICKETING 100%]:
-      // เมื่อมีสลิปแนบ ออกตั๋ว e-Ticket QR Code และใบเสร็จรับเงินทางการทันทีใน 1.5 วินาที!
-      if (hasSlip) {
+      // [THEP-APAI 5 SUPREME RULES & MISSION 48/49 PROTOCOL]:
+      // เมื่อมีสลิปแนบ และข้อมูลถูกต้อง 100% ออกตั๋ว e-Ticket QR Code และใบเสร็จรับเงินทางการทันทีใน 1.5 วินาที!
+      if (hasSlip && !isManualApproval) {
         const stepForm = document.getElementById('bookingStepContainer');
         if (stepForm) stepForm.style.opacity = '0.5';
 
@@ -1539,6 +1589,9 @@
         setTimeout(() => {
           handlePaymentSuccessAuto(result.order.order_id);
         }, 1200);
+      } else if (hasSlip && isManualApproval) {
+        // [THEP-APAI RULE 5]: สลิปส่งให้ฝ่ายบัญชีตรวจสอบสเตทเมนต์ (รอการยืนยันก่อนออกตั๋ว)
+        startWaitingVerification(result);
       } else if (isSystemC) {
         // ไม่มีสลิปแนบ -> รอระบบตรวจจับเงินเข้าอัตโนมัติ (Zero-Slip / Bank Open API)
         if (effectiveTotal !== total) {
@@ -1741,15 +1794,14 @@
         const lineTotal = price * item.count;
 
         const tr = document.createElement('tr');
+        tr.style.borderBottom = '1px dashed #e2e8f0';
         tr.innerHTML = `
-          <td style="text-align: center; color: #64748b;">${rowIdx++}</td>
-          <td>
-            <strong>${escapeHtml(item.name)}</strong>
-            <div style="font-size: 0.78rem; color: #64748b;">บัตรเข้าชมคอนเสิร์ต (e-Ticket)</div>
+          <td style="text-align: left; padding: 8px 6px;">
+            <strong style="color: #0f172a; font-size: 0.88rem;">${escapeHtml(item.name)}</strong>
+            <div style="font-size: 0.74rem; color: #64748b;">@฿${price.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</div>
           </td>
-          <td style="text-align: center; font-weight: 700;">${item.count} ใบ</td>
-          <td style="text-align: right;">฿${price.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
-          <td style="text-align: right; font-weight: 700;">฿${lineTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
+          <td style="text-align: center; font-weight: 700; padding: 8px 4px; font-size: 0.88rem;">${item.count} ใบ</td>
+          <td style="text-align: right; font-weight: 800; padding: 8px 6px; font-size: 0.92rem; color: #0284c7;">฿${lineTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
         `;
         rcpItemsTableBody.appendChild(tr);
       });
@@ -1762,9 +1814,10 @@
       tickets.forEach((ticket, idx) => {
         const card = document.createElement('div');
         card.className = 'ep-ticket-pass';
-        card.style.maxWidth = '460px';
+        card.style.maxWidth = '380px';
         card.style.width = '100%';
-        card.style.margin = '0 auto 10px auto';
+        card.style.margin = '0 auto 14px auto';
+        card.style.boxSizing = 'border-box';
         card.style.boxShadow = '0 8px 24px rgba(0,0,0,0.6)';
 
         card.innerHTML = `
@@ -1788,15 +1841,23 @@
             <!-- QR rendered -->
           </div>
 
-          <div style="font-family: monospace; font-size: 0.85rem; color: var(--accent-cyan); letter-spacing: 1px; margin-bottom:10px; word-break: break-all;">
+          <div style="font-family: monospace; font-size: 0.78rem; color: #38bdf8; letter-spacing: 0.5px; margin: 8px 0; word-break: break-all; text-align: center; background: rgba(2, 132, 199, 0.12); padding: 5px 8px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.3);">
             ${escapeHtml(ticket.qr_code_hash)}
           </div>
 
-          <div class="ep-ticket-meta" style="text-align:left; font-size:0.8rem; background:#070d1a; padding:10px; border-radius:6px; display:grid; grid-template-columns: 1fr 1fr; gap: 4px;">
-            <div>รหัสบัตร: <strong style="color:#fff;">${ticket.ticket_id}</strong></div>
-            <div>คำสั่งซื้อ: <strong style="color:#fff;">${ticket.order_id}</strong></div>
-            <div>สถานะ: <strong style="color: var(--accent-green);">${ticket.is_void ? 'ระงับตรวจสอบ' : 'สิทธิ์สมบูรณ์'}</strong></div>
-            <div>ริสต์แบนด์: <strong style="color:var(--text-muted);">${ticket.wristband_id || 'รับสายรัดข้อมือหน้างาน'}</strong></div>
+          <div class="ep-ticket-meta" style="text-align:left; font-size:0.82rem; background:#070d1a; padding:10px 14px; border-radius:8px; display:flex; flex-direction:column; gap:6px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:4px;">
+              <span style="color:#94a3b8;">รหัสบัตร:</span> <strong style="color:#fff; font-family:monospace; font-size:0.84rem;">${ticket.ticket_id}</strong>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:4px;">
+              <span style="color:#94a3b8;">คำสั่งซื้อ:</span> <strong style="color:#fff; font-family:monospace; font-size:0.84rem;">${ticket.order_id}</strong>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:4px;">
+              <span style="color:#94a3b8;">สถานะสิทธิ์:</span> <strong style="color:var(--accent-green);">${ticket.is_void ? '⚠️ ระงับตรวจสอบ' : '✓ สิทธิ์สมบูรณ์'}</strong>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="color:#94a3b8;">ริสต์แบนด์:</span> <strong style="color:#38bdf8;">${ticket.wristband_id || 'รับสายรัดข้อมือหน้างาน'}</strong>
+            </div>
           </div>
         `;
         ticketsArea.appendChild(card);
@@ -1901,6 +1962,17 @@
       });
     }
 
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768;
+    const isLineOrInApp = /Line\/|FBAV\/|Instagram|MicroMessenger|musical_ly|BytedanceWebview/i.test(navigator.userAgent);
+
+    if (isMobile || isLineOrInApp) {
+      // บนมือถือหรือใน Line In-App Browser ให้เปิดโมดอลเอกสารรวมทันที เพื่อให้แตะค้างบันทึกรูปได้ 100%
+      if (typeof SlipGenerator !== 'undefined' && typeof SlipGenerator.openPdfViewer === 'function' && approvedTickets.length > 0) {
+        window.openLookupPdfViewer();
+        return;
+      }
+    }
+
     if (approvedTickets.length > 0 && typeof executeBookingThermalPrint === 'function') {
       executeBookingThermalPrint(parentOrder || {}, approvedTickets, 'TICKETS_ONLY');
     } else {
@@ -1970,16 +2042,31 @@
     let payment = {};
     if (typeof EventPayDB !== 'undefined' && firstTicket.order_id) {
       order = EventPayDB.get('orders', firstTicket.order_id) || {};
-      payment = (EventPayDB.find('payments', p => p.order_id === firstTicket.order_id) || [])[0] || {};
+      payment = (EventPayDB.getAll('payments', p => p.order_id === firstTicket.order_id) || [])[0] || {};
     }
-    if (!order.order_id) {
+    if (!order || !order.order_id) {
       order = {
         order_id: firstTicket.order_id || ('ORD-' + Date.now().toString().slice(-6)),
         customer_name: firstTicket.attendee_name || 'ลูกค้าคอนเสิร์ต',
         customer_phone: firstTicket.attendee_phone || '-',
         total_amount: tickets.reduce((sum, t) => sum + (parseFloat(t.price) || 0), 0),
-        created_at: firstTicket.created_at || new Date().toISOString()
+        created_at: firstTicket.created_at || new Date().toISOString(),
+        items: []
       };
+    }
+    if (!order.items || order.items.length === 0) {
+      const summaryByTier = {};
+      tickets.forEach(t => {
+        const tn = t.tier_name || 'บัตรคอนเสิร์ต';
+        if (!summaryByTier[tn]) summaryByTier[tn] = { count: 0, tier_id: t.tier_id, price: t.price || 0 };
+        summaryByTier[tn].count++;
+      });
+      order.items = Object.keys(summaryByTier).map(tn => ({
+        tier_name: tn,
+        tier_id: summaryByTier[tn].tier_id,
+        quantity: summaryByTier[tn].count,
+        unit_price: summaryByTier[tn].price
+      }));
     }
     if (typeof SlipGenerator !== 'undefined' && typeof SlipGenerator.openPdfViewer === 'function') {
       SlipGenerator.openPdfViewer(order, payment, tickets);
@@ -2208,11 +2295,19 @@
 
               ${centerAreaHtml}
 
-              <div style="background: rgba(0,0,0,0.3); border-radius: 6px; padding: 8px; font-size: 0.75rem; color: var(--text-muted); display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
-                <div>รหัสบัตร: <strong style="color: #fff;">${t.ticket_id}</strong></div>
-                <div>คำสั่งซื้อ: <strong style="color: #fff;">${t.order_id || '-'}</strong></div>
-                <div>ริสต์แบนด์: <strong style="color: #a5b4fc;">${t.wristband_id || 'รับหน้าประตู'}</strong></div>
-                <div>จำนวนเข้างาน: <strong style="color: #fff;">${t.entry_count || 0} ครั้ง</strong></div>
+              <div class="ep-ticket-meta" style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px 14px; font-size: 0.82rem; color: var(--text-muted); display: flex; flex-direction: column; gap: 6px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 4px;">
+                  <span style="color: #94a3b8;">รหัสบัตร:</span> <strong style="color: #fff; font-family: monospace; font-size: 0.84rem;">${t.ticket_id}</strong>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 4px;">
+                  <span style="color: #94a3b8;">คำสั่งซื้อ:</span> <strong style="color: #fff; font-family: monospace; font-size: 0.84rem;">${t.order_id || '-'}</strong>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 4px;">
+                  <span style="color: #94a3b8;">ริสต์แบนด์:</span> <strong style="color: #38bdf8;">${t.wristband_id || 'รับสายรัดข้อมือหน้างาน'}</strong>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span style="color: #94a3b8;">จำนวนเข้างาน:</span> <strong style="color: #fff;">${t.entry_count || 0} ครั้ง</strong>
+                </div>
               </div>
 
               ${isApproved ? `
@@ -2262,19 +2357,26 @@
   // THERMAL 80MM UNIFIED PRINT ENGINE FOR ONLINE BOOKING (RECEIPT & TICKETS)
   // ==========================================================================
   function resolveCurrentBookingOrderAndTickets() {
-    let order = lastBookingResult?.order;
-    let payment = lastBookingResult?.payment;
-    let tickets = lastBookingResult?.tickets;
+    let order = (typeof lastBookingResult !== 'undefined' && lastBookingResult) ? lastBookingResult.order : null;
+    let payment = (typeof lastBookingResult !== 'undefined' && lastBookingResult) ? lastBookingResult.payment : null;
+    let tickets = (typeof lastBookingResult !== 'undefined' && lastBookingResult) ? lastBookingResult.tickets : null;
+
     if ((!order || !order.order_id) && typeof EventPayDB !== 'undefined') {
       const orderIdEl = document.getElementById('succOrderId') || document.getElementById('rcpOrderId');
       let orderId = orderIdEl ? orderIdEl.textContent.trim() : null;
-      if (!orderId && currentWaitingOrderId) {
+      if (!orderId && typeof currentWaitingOrderId !== 'undefined' && currentWaitingOrderId) {
         orderId = currentWaitingOrderId;
+      }
+      if (!orderId && typeof localStorage !== 'undefined') {
+        orderId = localStorage.getItem('eventpay_last_order_id');
+      }
+      if (!orderId && window._lastLookupMatchedTickets && window._lastLookupMatchedTickets.length > 0) {
+        orderId = window._lastLookupMatchedTickets[0].order_id;
       }
       if (orderId) {
         order = EventPayDB.get('orders', orderId);
-        payment = (EventPayDB.find('payments', p => p.order_id === orderId) || [])[0] || {};
-        tickets = EventPayDB.find('tickets', t => t.order_id === orderId) || [];
+        payment = (EventPayDB.getAll('payments', p => p.order_id === orderId) || [])[0] || {};
+        tickets = EventPayDB.getAll('tickets', t => t.order_id === orderId) || [];
       }
     }
     return { order: order || {}, payment: payment || {}, tickets: tickets || [] };

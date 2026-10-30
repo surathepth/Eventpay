@@ -479,7 +479,7 @@
       modal.id = 'epSlipMobilePreviewModal';
       modal.style.cssText = `
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        background: rgba(15, 23, 42, 0.95); z-index: 999999;
+        background: rgba(15, 23, 42, 0.95); z-index: 99999999;
         display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
         padding: 16px; box-sizing: border-box; overflow-y: auto; backdrop-filter: blur(8px);
       `;
@@ -490,7 +490,7 @@
       <div style="max-width: 500px; width: 100%; display: flex; flex-direction: column; align-items: center; margin-top: 10px;">
         <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
           <span style="color: #38bdf8; font-weight: 800; font-size: 1.05rem;">🖼️ สลิปภาพทางการ (สำหรับมือถือ)</span>
-          <button type="button" onclick="document.getElementById('epSlipMobilePreviewModal').style.display='none'" style="background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #fca5a5; padding: 6px 14px; border-radius: 8px; font-weight: 700; cursor: pointer;">✕ ปิดหน้าต่าง</button>
+          <button type="button" onclick="document.getElementById('epSlipMobilePreviewModal').style.display='none'" style="background: #ef4444; border: none; color: #ffffff; padding: 8px 18px; border-radius: 8px; font-weight: 800; font-size: 0.95rem; cursor: pointer; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);">✕ ปิดหน้าต่าง</button>
         </div>
 
         <div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(5, 150, 105, 0.3) 100%); border: 1.5px solid #10b981; border-radius: 12px; padding: 12px 16px; margin-bottom: 14px; width: 100%; text-align: center; box-shadow: 0 4px 18px rgba(16, 185, 129, 0.3);">
@@ -501,7 +501,10 @@
         <img src="${dataUrl}" alt="EventPay Slip" style="width: 100%; max-width: 440px; height: auto; border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.15); margin-bottom: 16px;">
 
         <div style="display: flex; flex-direction: column; gap: 10px; width: 100%; justify-content: center; margin-bottom: 24px;">
-          <button type="button" onclick="if(window.openBookingPdfViewer){window.openBookingPdfViewer();}else{alert('กรุณาเปิดจากหน้าบุคกิ้งค่ะ');}" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #fff; padding: 12px 20px; border-radius: 8px; font-weight: 800; border: 1px solid #38bdf8; cursor: pointer; width: 100%; font-size: 0.95rem; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 14px rgba(2, 132, 199, 0.4);">
+          <a href="${dataUrl}" download="${filename || 'EventPay_Ticket.png'}" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #fff; text-decoration: none; padding: 12px 20px; border-radius: 8px; font-weight: 800; font-size: 0.95rem; text-align: center; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4); display: flex; align-items: center; justify-content: center; gap: 8px;">
+            💾 ดาวน์โหลดรูปภาพลงเครื่อง (Save PNG)
+          </a>
+          <button type="button" onclick="if(window.openBookingPdfViewer){window.openBookingPdfViewer();}else if(window.openLookupPdfViewer){window.openLookupPdfViewer();}else{alert('กรุณาเปิดจากหน้าบุคกิ้งค่ะ');}" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #fff; padding: 12px 20px; border-radius: 8px; font-weight: 800; border: 1px solid #38bdf8; cursor: pointer; width: 100%; font-size: 0.95rem; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 14px rgba(2, 132, 199, 0.4);">
             📄 เปิดดูเอกสารรวม / บันทึกเป็น PDF (ในมือถือ)
           </button>
           <button type="button" onclick="document.getElementById('epSlipMobilePreviewModal').style.display='none'" style="background: #334155; color: #fff; padding: 12px 24px; border-radius: 8px; font-weight: 700; border: none; cursor: pointer; width: 100%; font-size: 1rem;">
@@ -664,28 +667,36 @@
       modal.style.cssText = `
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
         background: rgba(15, 23, 42, 0.95); z-index: 9999999;
-        display: flex; flex-direction: column; align-items: center;
+        display: none; flex-direction: column; align-items: center;
         overflow-y: auto; backdrop-filter: blur(8px); padding: 12px; box-sizing: border-box;
       `;
       document.body.appendChild(modal);
+    } else {
+      modal.style.display = 'none';
     }
 
-    // กำหนดค่าตัวเลขและข้อมูล
-    const totalAmount = parseFloat(order.total_amount || 0);
-    const formattedDate = new Date(order.created_at || Date.now()).toLocaleString('th-TH', {
-      year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-    });
-    const cashierText = (order.cashier_id === 'ONLINE_CUSTOMER') ? 'ระบบจองออนไลน์อัตโนมัติ (Online Self-Service)' : (order.cashier_id || 'ONLINE');
-    const paymentMethodText = (payment.method || order.payment_method || 'TRANSFER') === 'TRANSFER' ? 'โอนเงินผ่านธนาคาร / พร้อมเพย์ (PromptPay)' : (payment.method || 'เงินสด');
-    const bankRefText = order.bank_ref || payment.bank_ref || '-';
+    try {
+      // กำหนดค่าตัวเลขและข้อมูล
+      const totalAmount = parseFloat(order.total_amount || 0);
+      const formattedDate = new Date(order.created_at || Date.now()).toLocaleString('th-TH', {
+        year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+      });
+      const cashierText = (order.cashier_id === 'ONLINE_CUSTOMER') ? 'ระบบจองออนไลน์อัตโนมัติ (Online Self-Service)' : (order.cashier_id || 'ONLINE');
+      const paymentMethodText = (payment.method || order.payment_method || 'TRANSFER') === 'TRANSFER' ? 'โอนเงินผ่านธนาคาร / พร้อมเพย์ (PromptPay)' : (payment.method || 'เงินสด');
+      const bankRefText = order.bank_ref || payment.bank_ref || '-';
 
-    // สร้าง QR Code Image สำหรับตั๋วแต่ละใบ
-    const ticketQrImages = [];
-    for (let i = 0; i < tickets.length; i++) {
-      const t = tickets[i];
-      const qrDataUrl = await generateQrDataUrl(t.qr_code_hash || t.ticket_id, 200);
-      ticketQrImages.push(qrDataUrl);
-    }
+      // สร้าง QR Code Image สำหรับตั๋วแต่ละใบ
+      const ticketQrImages = [];
+      for (let i = 0; i < tickets.length; i++) {
+        const t = tickets[i];
+        try {
+          const qrDataUrl = await generateQrDataUrl(t.qr_code_hash || t.ticket_id, 200);
+          ticketQrImages.push(qrDataUrl);
+        } catch (qrErr) {
+          console.warn('[SlipGenerator] QR generation fallback for ticket:', t.ticket_id, qrErr);
+          ticketQrImages.push('');
+        }
+      }
 
     // รายการสินค้า
     const itemsHtml = (order.items || []).map((item, idx) => {
@@ -752,7 +763,7 @@
           <span>📄 เอกสารทางการ PDF & E-Ticket (${order.order_id})</span>
         </div>
         <div style="display: flex; gap: 8px;">
-          <button type="button" onclick="window.print()" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #fff; font-weight: 800; border: none; padding: 8px 18px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 6px; font-size: 0.92rem; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);">
+          <button type="button" onclick="if(/Line\//i.test(navigator.userAgent)){ alert('📱 สำหรับ LINE In-App Browser:\nระบบไม่รองรับคำสั่งพิมพ์โดยตรงค่ะ กรุณาแตะค้างที่รูปภาพ QR Code ด้านล่างเพื่อบันทึกภาพลงเครื่อง หรือเปิดลิงก์ผ่าน Chrome/Safari เพื่อบันทึกเป็นไฟล์ PDF ได้ 100% ค่ะ'); } else { window.print(); }" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #fff; font-weight: 800; border: none; padding: 8px 18px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 6px; font-size: 0.92rem; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);">
             🖨️ บันทึกเป็น PDF / พิมพ์
           </button>
           <button type="button" onclick="document.getElementById('epPdfViewerModal').style.display='none'" style="background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #fca5a5; font-weight: 700; padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 0.92rem;">
@@ -843,6 +854,11 @@
 
     modal.style.display = 'flex';
     modal.scrollIntoView({ behavior: 'smooth' });
+    } catch (pdfErr) {
+      console.error('[SlipGenerator.openPdfViewer Error]:', pdfErr);
+      if (modal) modal.style.display = 'none';
+      alert('เกิดข้อผิดพลาดในการเปิดเอกสาร PDF ค่ะ: ' + (pdfErr.message || pdfErr));
+    }
   };
 
   SlipGenerator.downloadReceiptSlip = async function (order, payment = {}, tickets = []) {
