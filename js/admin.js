@@ -59,6 +59,8 @@
         else if (currentTab === 'incidents') renderIncidentsTable();
         else if (currentTab === 'finance') renderFinanceLedger();
         else if (currentTab === 'audit') renderAuditLogsTable();
+        else if (currentTab === 'users') renderUsersTable();
+        else if (currentTab === 'bankSettings') renderBankSettings();
       });
     }
 
@@ -72,6 +74,8 @@
         else if (currentTab === 'incidents') renderIncidentsTable();
         else if (currentTab === 'finance') renderFinanceLedger();
         else if (currentTab === 'audit') renderAuditLogsTable();
+        else if (currentTab === 'users') renderUsersTable();
+        else if (currentTab === 'bankSettings') renderBankSettings();
       } catch (err) {}
     });
 

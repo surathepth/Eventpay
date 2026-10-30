@@ -91,10 +91,12 @@
         this._seedFinancialCategoriesIfMissing();
         this._seedBankAccountsIfMissing();
         this._seedTicketTiersIfMissing();
+        this._seedUsersIfMissing();
       }
       // ระบบเยียวยาข้อมูลอัตโนมัติ (Self-Healing Migration) สำหรับทุกสภาพแวดล้อม (file:///, localhost, cloud)
       this._healLegacyTicketTiers();
       this._healLegacyBankAccounts();
+      this._healLegacyUsers();
     }
 
     _initNetworkSync() {
@@ -491,6 +493,7 @@
 
       this._seedFinancialCategoriesIfMissing();
       this._seedBankAccountsIfMissing();
+      this._seedUsersIfMissing();
 
       this._setItem('system_initialized', 'true');
       this._setItem('db_version', DB_VERSION);
@@ -671,6 +674,153 @@
     }
 
     /**
+     * โหลดข้อมูลผู้ใช้งานและกำหนดสิทธิ์เริ่มต้น 5 บัญชีทางการ (The 5 Official Master Accounts by Thep-Apai)
+     */
+    _seedUsersIfMissing() {
+      const existing = this._getItem('users');
+      let users = [];
+      if (existing) {
+        try {
+          users = JSON.parse(existing);
+        } catch (e) {
+          users = [];
+        }
+      }
+      if (!users || users.length === 0) {
+        const defaultUsers = [
+          {
+            user_id: 'USER-ADMIN-01',
+            username: 'admin',
+            password: '9999',
+            name: 'Admin',
+            role: 'ADMIN',
+            permissions: { booking: true, index: true, kiosk: true, admin: true },
+            created_at: new Date().toISOString()
+          },
+          {
+            user_id: 'USER-ACC-01',
+            username: 'account',
+            password: '8888',
+            name: 'Account',
+            role: 'ACCOUNTANT',
+            permissions: { booking: true, index: true, kiosk: true, admin: false },
+            created_at: new Date().toISOString()
+          },
+          {
+            user_id: 'USER-FIN-01',
+            username: 'finance',
+            password: '7777',
+            name: 'finance',
+            role: 'ACCOUNTANT',
+            permissions: { booking: true, index: true, kiosk: true, admin: false },
+            created_at: new Date().toISOString()
+          },
+          {
+            user_id: 'USER-CASHIER-01',
+            username: 'cashier',
+            password: '1111',
+            name: 'cashier',
+            role: 'STAFF',
+            permissions: { booking: true, index: true, kiosk: true, admin: false },
+            created_at: new Date().toISOString()
+          },
+          {
+            user_id: 'USER-GUARD-01',
+            username: 'security guard',
+            password: '2222',
+            name: 'Security guard',
+            role: 'STAFF',
+            permissions: { booking: false, index: false, kiosk: true, admin: false },
+            created_at: new Date().toISOString()
+          }
+        ];
+        this._saveCollection('users', defaultUsers);
+      }
+    }
+
+    /**
+     * ระบบเยียวยาบัญชีผู้ใช้งานอัตโนมัติ (Self-Healing Master Accounts Migration)
+     * บังคับให้ 5 บัญชีหลักมีอยู่เสมอ 100% ทุกสภาพแวดล้อม (file:///, localhost, cloud)
+     * พร้อมคงบัญชีที่สร้างเพิ่มไว้ครบถ้วน 100%
+     */
+    _healLegacyUsers() {
+      let users = this.getAll('users');
+      if (!Array.isArray(users) || users.length === 0) {
+        this._seedUsersIfMissing();
+        return;
+      }
+
+      const officialUsers = [
+        {
+          user_id: 'USER-ADMIN-01',
+          username: 'admin',
+          password: '9999',
+          name: 'Admin',
+          role: 'ADMIN',
+          permissions: { booking: true, index: true, kiosk: true, admin: true }
+        },
+        {
+          user_id: 'USER-ACC-01',
+          username: 'account',
+          password: '8888',
+          name: 'Account',
+          role: 'ACCOUNTANT',
+          permissions: { booking: true, index: true, kiosk: true, admin: false }
+        },
+        {
+          user_id: 'USER-FIN-01',
+          username: 'finance',
+          password: '7777',
+          name: 'finance',
+          role: 'ACCOUNTANT',
+          permissions: { booking: true, index: true, kiosk: true, admin: false }
+        },
+        {
+          user_id: 'USER-CASHIER-01',
+          username: 'cashier',
+          password: '1111',
+          name: 'cashier',
+          role: 'STAFF',
+          permissions: { booking: true, index: true, kiosk: true, admin: false }
+        },
+        {
+          user_id: 'USER-GUARD-01',
+          username: 'security guard',
+          password: '2222',
+          name: 'Security guard',
+          role: 'STAFF',
+          permissions: { booking: false, index: false, kiosk: true, admin: false }
+        }
+      ];
+
+      const normalize = str => String(str || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      let modified = false;
+
+      officialUsers.forEach(official => {
+        const existingIdx = users.findIndex(u => normalize(u.username) === normalize(official.username));
+        if (existingIdx === -1) {
+          users.push({ ...official, created_at: new Date().toISOString() });
+          modified = true;
+        } else {
+          const existing = users[existingIdx];
+          if (existing.password !== official.password || existing.role !== official.role || !existing.permissions) {
+            users[existingIdx] = {
+              ...existing,
+              password: official.password,
+              role: official.role,
+              permissions: official.permissions
+            };
+            modified = true;
+          }
+        }
+      });
+
+      if (modified) {
+        this._saveCollection('users', users);
+      }
+    }
+
+    /**
      * ซิงก์การตั้งค่าระบบจาก Cloud เข้าสู่ Local Database (Dynamic Cross-Platform Synchronization)
      */
     syncFromCloudSettings(cloudSettings) {
@@ -736,9 +886,10 @@
         }
       });
 
-      // ซิงก์บัญชีธนาคารหลักและราคาบัตรให้เรียบร้อย
+      // ซิงก์บัญชีธนาคารหลัก ราคาบัตร และสิทธิ์ผู้ใช้งานให้เรียบร้อยสมบูรณ์ 100%
       this._healLegacyBankAccounts();
       this._healLegacyTicketTiers();
+      this._healLegacyUsers();
 
       const ts = options.snapshotTimestamp || new Date().toISOString();
       this._setItem('eventpay_last_imported_snapshot_at', ts);
@@ -899,7 +1050,7 @@
     _scheduleCloudAutoSync(collection, action, record) {
       const syncableCols = [
         'orders', 'tickets', 'payments', 'cash_payouts', 'cash_sessions',
-        'security_incidents', 'ticket_tiers', 'bank_accounts', 'events', 'gates', 'staff'
+        'security_incidents', 'ticket_tiers', 'bank_accounts', 'events', 'gates', 'staff', 'users'
       ];
       if (!syncableCols.includes(collection)) return;
 
