@@ -112,7 +112,7 @@
           this.checkMasterConnection();
         }
         // [UNIVERSAL OMNI-SYNC ENGINE]: เริ่มต้น Heartbeat Poller ซิงก์ข้อมูล 4 แหล่ง อัตโนมัติ 100%
-        setTimeout(() => {
+        this._cloudHeartbeatInitTimer = setTimeout(() => {
           this._startCloudHeartbeatPoller();
         }, 150);
       }
@@ -252,8 +252,17 @@
     seedDefaultData() {
       const now = new Date().toISOString();
 
-      // 1. งานคอนเสิร์ต
+      // 1. งานคอนเสิร์ต (อัปเดตงานคอนเสิร์ตจริง: เขาใหญ่ THAI ROCK 2 FEST ตามคำสั่งเทพอภัย)
       const events = [
+        {
+          event_id: 'EVT-THAIROCK2-2027',
+          name: 'เขาใหญ่ THAI ROCK 2 FEST',
+          venue: 'ณ ลานราชสีห์-มา ถนนธนะรัชต์ กม.21 เขาใหญ่',
+          start_date: '2027-03-20T14:00:00Z',
+          end_date: '2027-03-21T02:00:00Z',
+          total_capacity: 10000,
+          status: 'ACTIVE'
+        },
         {
           event_id: 'EVT-CONCERT-001',
           name: 'THEP-APAI & LILIN SUPREME MEGA CONCERT 2026',
@@ -265,12 +274,11 @@
         }
       ];
 
-      // 2. โซนและประเภทบัตร (Default Tiers ตรงตามราคาจริงหน้า Admin ของเทพอภัย 100%)
+      // 2. โซนและประเภทบัตร (Default Tiers ตรงตามราคาจริง THAI ROCK 2 FEST ของเทพอภัย 100%)
       const ticket_tiers = [
+        { tier_id: 'TIER-EARLY-ROCK', name: 'Early Rock (จำกัด 2,000 ใบ)', price: 790.00, quota: 2000, sold: 0 },
+        { tier_id: 'TIER-REG-ROCK', name: 'Regular Rock (บัตรราคาปกติ)', price: 1500.00, quota: 7500, sold: 0 },
         { tier_id: 'TIER-VIP', name: 'VIP Front Row (Zone A)', price: 2000.00, quota: 500, sold: 0 },
-        { tier_id: 'TIER-REG', name: 'Regular Seated (Zone B)', price: 1500.00, quota: 2000, sold: 0 },
-        { tier_id: 'TIER-STD', name: 'General Standing (Zone C)', price: 1200.00, quota: 5000, sold: 0 },
-        { tier_id: 'TIER-GEN', name: 'ทั่วไป', price: 1000.00, quota: 1000, sold: 0 },
         { tier_id: 'TIER-TEST-5', name: 'บัตรทดสอบโอนจริง 5 บาท (KBank)', price: 5.00, quota: 500, sold: 0 }
       ];
 
@@ -991,12 +999,12 @@
       this._cloudPollerActive = true;
 
       // ดึงข้อมูลครั้งแรกทันทีที่เปิดหน้าจอ (Instant Initial Hydration)
-      setTimeout(() => {
+      this._cloudInitialHydrationTimer = setTimeout(() => {
         this.pullMasterSnapshotFromCloud(false).catch(() => {});
       }, 300);
 
       // วนลูปตรวจจับ Heartbeat ทุก 2.5 วินาที
-      setInterval(async () => {
+      this._cloudPollerInterval = setInterval(async () => {
         try {
           const adapter = (typeof EventPayFirebase !== 'undefined') ? EventPayFirebase : null;
           if (!adapter || typeof adapter.fetchCloudSetting !== 'function') return;
@@ -1042,6 +1050,25 @@
           // ป้องกัน error หลุดรบกวนระบบ
         }
       }, 2500);
+    }
+
+    /**
+     * สั่งหยุดตัวตรวจจับ Heartbeat ในพื้นหลัง (สำหรับการทดสอบหรือหยุดชั่วคราว)
+     */
+    stopCloudSyncEngine() {
+      if (this._cloudHeartbeatInitTimer) {
+        clearTimeout(this._cloudHeartbeatInitTimer);
+        this._cloudHeartbeatInitTimer = null;
+      }
+      if (this._cloudInitialHydrationTimer) {
+        clearTimeout(this._cloudInitialHydrationTimer);
+        this._cloudInitialHydrationTimer = null;
+      }
+      if (this._cloudPollerInterval) {
+        clearInterval(this._cloudPollerInterval);
+        this._cloudPollerInterval = null;
+      }
+      this._cloudPollerActive = false;
     }
 
     /**

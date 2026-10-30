@@ -576,7 +576,9 @@
     const ordersTbody = document.getElementById('ordersTableBody');
     if (!ordersTbody) return;
     ordersTbody.innerHTML = '';
-    const orders = EventPayDB.getAll('orders').reverse();
+    // [THEP-APAI MISSION 48]: เรียงลำดับคำสั่งซื้อล่าสุดอยู่บนสุดเสมอ (Sort by created_at DESC)
+    const orders = EventPayDB.getAll('orders');
+    orders.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
     const allPayments = EventPayDB.getAll('payments');
 
     if (orders.length === 0) {
@@ -618,15 +620,15 @@
           statusHtml = '<span class="ep-badge ep-badge-pass">🟢 ชำระแล้ว (อนุมัติแล้ว)</span>';
           actionHtml = `
             <div style="display: flex; gap: 4px; flex-wrap: wrap; align-items: center;">
-              <button type="button" class="ep-nav-btn" style="font-size: 0.72rem; padding: 4px 8px; background: #0284c7; color: #fff; font-weight: 700; border-color: #38bdf8;" onclick="openOrderTicketsModal('${o.order_id}')">
-                🎟️ ดูตั๋ว QR (${ticketCount} ใบ)
-              </button>
               ${slipSrc ? `
-                <button type="button" class="ep-nav-btn" style="font-size: 0.72rem; padding: 4px 8px; background: #0284c7; color: #fff; font-weight: 700;" onclick="openSlipInspection('${o.order_id}', '${payment ? payment.payment_id : ''}')">
-                  📷 ดูรูปสลิปแนบ
+                <button type="button" class="ep-nav-btn" style="font-size: 0.74rem; padding: 4px 10px; background: #0284c7; color: #fff; font-weight: 800; border: 1.5px solid #38bdf8;" onclick="openSlipInspection('${o.order_id}', '${payment ? payment.payment_id : ''}')">
+                  📷 ดูรูปสลิป
                 </button>
               ` : ''}
-              <button type="button" class="ep-nav-btn" style="font-size: 0.72rem; padding: 4px 8px; background: rgba(239, 68, 68, 0.2); border-color: #ef4444; color: #fca5a5; font-weight: 700;" onclick="rejectTransferOrder('${o.order_id}', '${payment ? payment.payment_id : ''}')">
+              <button type="button" class="ep-nav-btn" style="font-size: 0.74rem; padding: 4px 10px; background: #1e293b; color: #38bdf8; font-weight: 800; border: 1px solid #38bdf8;" onclick="openOrderTicketsModal('${o.order_id}')">
+                🎟️ ดูตั๋ว QR (${ticketCount} ใบ)
+              </button>
+              <button type="button" class="ep-nav-btn" style="font-size: 0.74rem; padding: 4px 10px; background: rgba(239, 68, 68, 0.25); border: 1.5px solid #ef4444; color: #fca5a5; font-weight: 800;" onclick="rejectTransferOrder('${o.order_id}', '${payment ? payment.payment_id : ''}')">
                 🚨 สลิปปลอม / ยกเลิกโมฆะ
               </button>
             </div>
@@ -1408,12 +1410,31 @@
     if (modalTitle) modalTitle.textContent = `🧾 ตรวจสอบสลิปโอนเงิน (Order: ${orderId})`;
     if (modalDetails) {
       const isPending = order && order.payment_status === 'PENDING_VERIFICATION';
+      const orderDateStr = order && order.created_at ? new Date(order.created_at).toLocaleString('th-TH') : '-';
       modalDetails.innerHTML = `
-        <div style="background: rgba(0,0,0,0.4); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); line-height: 1.8; font-size: 0.88rem;">
-          <div><strong>ชื่อลูกค้า:</strong> ${escapeHtml(custName)} (โทร: ${escapeHtml(custPhone)})</div>
-          <div><strong>ยอดเงินที่ต้องเข้าสเตทเมนต์:</strong> <strong style="color: var(--accent-gold); font-size: 1.15rem;">฿${amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong></div>
-          <div><strong>เลขอ้างอิงสลิป:</strong> <span style="font-family: monospace; color: var(--accent-cyan); font-weight: 700;">${escapeHtml(bankRef)}</span></div>
-          <div><strong>สถานะปัจจุบัน:</strong> <span class="ep-badge ${isPending ? 'ep-badge-warning ep-blink-urgent-gold' : (order && order.payment_status === 'PAID' ? 'ep-badge-pass' : 'ep-badge-danger')}">${isPending ? '🟡 รอตรวจสเตทเมนต์' : (order ? order.payment_status : '-')}</span></div>
+        <div style="background: rgba(15, 23, 42, 0.85); padding: 16px; border-radius: 12px; border: 1.5px solid var(--accent-cyan); line-height: 1.8; font-size: 0.92rem; text-align: left;">
+          <div style="margin-bottom: 8px;"><strong>ชื่อลูกค้า:</strong> ${escapeHtml(custName)} (โทร: <a href="tel:${escapeHtml(custPhone)}" style="color: var(--accent-cyan); text-decoration: underline;">${escapeHtml(custPhone)}</a>)</div>
+          
+          <!-- 3 MASTER CARDS FOR K-PLUS RECONCILIATION -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin: 12px 0;">
+            <div style="background: rgba(0,0,0,0.5); padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(245, 158, 11, 0.3);">
+              <span style="font-size: 0.8rem; color: #fde047; display: block; font-weight: 700;">💰 1. ยอดเงินโอนจริง (K-Plus):</span>
+              <strong style="color: var(--accent-gold); font-size: 1.35rem; font-family: 'Inter', monospace;">฿${amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong>
+            </div>
+            <div style="background: rgba(0,0,0,0.5); padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.3);">
+              <span style="font-size: 0.8rem; color: #7dd3fc; display: block; font-weight: 700;">⏱️ 2. วันที่-เวลาโอน:</span>
+              <strong style="color: #ffffff; font-size: 1.05rem;">${orderDateStr}</strong>
+            </div>
+            <div style="background: rgba(0,0,0,0.5); padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.3);">
+              <span style="font-size: 0.8rem; color: #6ee7b7; display: block; font-weight: 700;">🔢 3. เลขอ้างอิงสลิป (Ref):</span>
+              <strong style="font-family: monospace; color: var(--accent-cyan); font-size: 1.15rem; word-break: break-all;">${escapeHtml(bankRef)}</strong>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding-top: 8px; border-top: 1px dashed rgba(255,255,255,0.15);">
+            <span><strong>สถานะคำสั่งซื้อ:</strong></span>
+            <span class="ep-badge ${isPending ? 'ep-badge-warning ep-blink-urgent-gold' : (order && order.payment_status === 'PAID' ? 'ep-badge-pass' : 'ep-badge-danger')}" style="font-size: 0.85rem; padding: 4px 12px;">${isPending ? '🟡 รอตรวจสเตทเมนต์' : (order ? order.payment_status : '-')}</span>
+          </div>
         </div>
 
         ${isPending ? `
@@ -1426,11 +1447,11 @@
             </button>
           </div>
         ` : (order && order.payment_status === 'PAID' ? `
-          <div style="margin-top: 14px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
-            <button type="button" class="ep-nav-btn" style="padding: 10px 18px; font-size: 0.9rem; background: #0284c7; color: #fff; font-weight: 700;" onclick="closeModal('modalPhotoZoom'); openOrderTicketsModal('${orderId}');">
+          <div style="margin-top: 16px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+            <button type="button" class="ep-nav-btn" style="padding: 10px 20px; font-size: 0.92rem; background: #0284c7; color: #fff; font-weight: 800; border: 1.5px solid #38bdf8;" onclick="closeModal('modalPhotoZoom'); openOrderTicketsModal('${orderId}');">
               🎟️ ดูตั๋ว QR ที่ระบบเจนไปแล้ว
             </button>
-            <button type="button" class="ep-nav-btn" style="padding: 10px 18px; font-size: 0.9rem; background: #ef4444; color: #fff; font-weight: 700;" onclick="rejectTransferOrder('${orderId}', '${payment ? payment.payment_id : ''}', true)">
+            <button type="button" class="ep-nav-btn" style="padding: 10px 20px; font-size: 0.92rem; background: #ef4444; color: #fff; font-weight: 800; border: 1.5px solid #f87171;" onclick="rejectTransferOrder('${orderId}', '${payment ? payment.payment_id : ''}', true)">
               🚨 สลิปปลอม / ยกเลิกเป็นบัตรโมฆะ
             </button>
           </div>

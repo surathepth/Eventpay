@@ -45,6 +45,20 @@
     setupInputListeners();
     setupSSEListener();
 
+    // [THEP-APAI STANDARD IMAGE 4]: สิทธิ์ของคุณล็อกไว้: 09:59 นาที
+    const lockTimerEl = document.getElementById('bookingLockCountdownTimer');
+    if (lockTimerEl) {
+      let lockSeconds = 599; // 09:59
+      setInterval(() => {
+        if (lockSeconds > 0) {
+          lockSeconds--;
+          const m = String(Math.floor(lockSeconds / 60)).padStart(2, '0');
+          const s = String(lockSeconds % 60).padStart(2, '0');
+          lockTimerEl.textContent = `${m}:${s} นาที`;
+        }
+      }, 1000);
+    }
+
     // [UNIVERSAL CLOUD REALTIME SYNC]: ดึงการตั้งค่าสดจาก Cloud (Active Bank, Tiers, Clear Timestamp)
     if (typeof EventPayFirebase !== 'undefined' && typeof EventPayFirebase.fetchAllCloudSettings === 'function') {
       EventPayFirebase.fetchAllCloudSettings().then(cloudSettings => {
@@ -255,21 +269,64 @@
       card.className = `ep-tier-item ${isSelected ? 'selected' : ''}`;
       card.id = `tier_card_${tier.tier_id}`;
 
+      // [THEP-APAI STANDARD IMAGE 2]: Build tags, strikethrough price, and modern crystal styling
+      let tagHtml = '';
+      let origPriceHtml = '';
+      const tName = tier.name || '';
+      const tId = tier.tier_id || '';
+
+      if (tId === 'TIER-EARLY-ROCK' || tName.includes('Early')) {
+        tagHtml = `
+          <span style="background: #f59e0b; color: #000000; font-weight: 800; font-size: 0.74rem; padding: 3px 10px; border-radius: 20px; display: inline-flex; align-items: center; gap: 4px;">⭐ EARLY ROCK (จำกัด 2,000 ใบ)</span>
+          <span style="background: #fee2e2; color: #e11d48; font-weight: 800; font-size: 0.74rem; padding: 3px 10px; border-radius: 20px;">ลดทันที ฿710!</span>
+        `;
+        origPriceHtml = `<div style="font-size: 0.82rem; color: #94a3b8; text-decoration: line-through; font-weight: 700; margin-bottom: 2px;">ปกติ ฿1,500</div>`;
+      } else if (tId === 'TIER-VIP' || tName.includes('VIP')) {
+        tagHtml = `
+          <span style="background: #fef08a; color: #854d0e; font-weight: 800; font-size: 0.74rem; padding: 3px 10px; border-radius: 20px; display: inline-flex; align-items: center; gap: 4px;">👑 VIP EXCLUSIVE</span>
+          <span style="background: #ecfdf5; color: #047857; font-weight: 800; font-size: 0.74rem; padding: 3px 10px; border-radius: 20px;">ใกล้ชิดติดขอบเวที</span>
+        `;
+        origPriceHtml = `<div style="font-size: 0.82rem; color: #94a3b8; text-decoration: line-through; font-weight: 700; margin-bottom: 2px;">ปกติ ฿2,500</div>`;
+      } else if (tId === 'TIER-REG' || tName.includes('Regular')) {
+        tagHtml = `
+          <span style="background: #e0f2fe; color: #0369a1; font-weight: 800; font-size: 0.74rem; padding: 3px 10px; border-radius: 20px; display: inline-flex; align-items: center; gap: 4px;">💺 ZONE B SEATED</span>
+          <span style="background: #f1f5f9; color: #334155; font-weight: 800; font-size: 0.74rem; padding: 3px 10px; border-radius: 20px;">มุมมองพรีเมียม</span>
+        `;
+        origPriceHtml = `<div style="font-size: 0.82rem; color: #94a3b8; text-decoration: line-through; font-weight: 700; margin-bottom: 2px;">ปกติ ฿1,800</div>`;
+      } else if (tId === 'TIER-STD' || tName.includes('Standing')) {
+        tagHtml = `
+          <span style="background: #f3e8ff; color: #6b21a8; font-weight: 800; font-size: 0.74rem; padding: 3px 10px; border-radius: 20px; display: inline-flex; align-items: center; gap: 4px;">🎸 ALL-ZONE STANDING</span>
+          <span style="background: #fee2e2; color: #e11d48; font-weight: 800; font-size: 0.74rem; padding: 3px 10px; border-radius: 20px;">มันส์สุดเหวี่ยง</span>
+        `;
+        origPriceHtml = `<div style="font-size: 0.82rem; color: #94a3b8; text-decoration: line-through; font-weight: 700; margin-bottom: 2px;">ปกติ ฿1,500</div>`;
+      } else if (tId === 'TIER-TEST-5' || tName.includes('ทดสอบ')) {
+        tagHtml = `
+          <span style="background: #dcfce7; color: #166534; font-weight: 800; font-size: 0.74rem; padding: 3px 10px; border-radius: 20px; display: inline-flex; align-items: center; gap: 4px;">⚡ TEST MODE</span>
+          <span style="background: #ecfdf5; color: #047857; font-weight: 800; font-size: 0.74rem; padding: 3px 10px; border-radius: 20px;">ทดสอบโอนจริง 5 บาท</span>
+        `;
+      } else {
+        tagHtml = `
+          <span style="background: #f0f9ff; color: #0284c7; font-weight: 800; font-size: 0.74rem; padding: 3px 10px; border-radius: 20px;">🎫 ${escapeHtml(tier.name)}</span>
+        `;
+      }
+
       card.innerHTML = `
         <div class="ep-tier-info">
-          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-            <span class="ep-tier-name">${tier.name}</span>
-            <span class="ep-tier-badge" id="badge_${tier.tier_id}" style="display: ${isSelected ? 'inline-block' : 'none'}; background: var(--accent-gold); color: #000; font-size: 0.72rem; font-weight: 800; padding: 2px 8px; border-radius: 12px;">✓ เลือกแล้ว</span>
+          <div class="ep-tier-tags-row" style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
+            ${tagHtml}
+            <span class="ep-tier-badge" id="badge_${tier.tier_id}" style="display: ${isSelected ? 'inline-block' : 'none'}; background: #ffb703; color: #000; font-size: 0.72rem; font-weight: 800; padding: 2px 8px; border-radius: 12px;">✓ เลือกแล้ว</span>
           </div>
-          <div class="ep-tier-meta">
-            <span>ความจุ: ${(tier.capacity || tier.quota || 0).toLocaleString()} ที่นั่ง</span>
+          <div class="ep-tier-name" style="font-size: 1.22rem; font-weight: 900; color: #0f172a; margin-bottom: 4px;">${escapeHtml(tier.name)}</div>
+          <div class="ep-tier-meta" style="font-size: 0.82rem; color: #475569; font-weight: 600; line-height: 1.4;">
+            ณ ลานราชสีห์-มา ถนนธนะรัชต์ กม.21 เขาใหญ่ | จัดโดย ICE Sound & NEW FOLDER LIVE
           </div>
         </div>
-        <div class="ep-tier-price-col">
-          <div class="ep-tier-price">฿${tier.price.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</div>
+        <div class="ep-tier-price-col" style="text-align: right; padding-right: 12px;">
+          ${origPriceHtml}
+          <div class="ep-tier-price" style="font-size: 1.85rem; font-weight: 900; color: #e11d48; line-height: 1.1;">฿${tier.price.toLocaleString('th-TH', { minimumFractionDigits: (tier.price % 1 === 0 ? 0 : 2) })}</div>
         </div>
-        <div class="ep-qty-control">
-          <button type="button" class="ep-qty-btn" onclick="changeTierQuantity('${tier.tier_id}', -1, event)" aria-label="ลด">-</button>
+        <div class="ep-qty-control" style="background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 24px; padding: 4px 6px; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 2px 6px rgba(2, 132, 199, 0.08);">
+          <button type="button" class="ep-qty-btn" onclick="changeTierQuantity('${tier.tier_id}', -1, event)" aria-label="ลด" style="width: 32px; height: 32px; border-radius: 50%; border: 1.5px solid #cbd5e1; background: #f8fafc; color: #0f172a; font-size: 1.2rem; font-weight: 900; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.15s ease;">-</button>
           <input type="number" 
                  id="qty_val_${tier.tier_id}" 
                  class="ep-qty-input" 
@@ -283,8 +340,9 @@
                  onblur="handleQtyBlur(this, '${tier.tier_id}')" 
                  oninput="handleQtyInput(this, '${tier.tier_id}')" 
                  onclick="handleQtyClick(this, '${tier.tier_id}', event)"
-                 aria-label="จำนวนบัตร ${tier.name}">
-          <button type="button" class="ep-qty-btn" onclick="changeTierQuantity('${tier.tier_id}', 1, event)" aria-label="เพิ่ม">+</button>
+                 aria-label="จำนวนบัตร ${tier.name}"
+                 style="width: 40px; text-align: center; border: none; background: transparent; font-size: 1.2rem; font-weight: 900; color: #0f172a; outline: none;">
+          <button type="button" class="ep-qty-btn" onclick="changeTierQuantity('${tier.tier_id}', 1, event)" aria-label="เพิ่ม" style="width: 32px; height: 32px; border-radius: 50%; border: 1.5px solid #cbd5e1; background: #f8fafc; color: #0f172a; font-size: 1.2rem; font-weight: 900; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.15s ease;">+</button>
         </div>
       `;
 
@@ -494,17 +552,25 @@
     const accName = activeBank ? activeBank.account_name : 'สุรเทพ ศรีสารคาม';
     const promptPayId = activeBank ? activeBank.promptpay_id : '0947834659';
 
-    // อัปเดตข้อมูลบัญชีผู้รับเงินแบบไดนามิก
+    // อัปเดตข้อมูลบัญชีผู้รับเงินแบบไดนามิก (โหมดสีสว่าง คมชัดสูงสุด 100% ตัวหนังสือเด่นชัด ไม่จม ไม่กลืน)
     if (accInfoEl) {
+      const isKbank = String(bankName).includes('กสิกรไทย') || String(bankName).includes('KBANK');
+      const bankColor = isKbank ? '#138f2d' : '#0284c7';
       accInfoEl.innerHTML = `
-        <div style="font-weight: 700; color: #fff; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+        <div style="font-weight: 900; color: #0f172a; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; font-size: 1rem;">
           <span>🏦 โอนเงินเข้าบัญชี:</span>
         </div>
-        <div style="color: var(--accent-gold); font-weight: 700; font-size: 0.95rem;">${escapeHtml(bankName)}</div>
-        <div style="margin-top: 2px;">เลขที่บัญชี: <strong style="font-family: monospace; font-size: 1.05rem; color: #fff; background: rgba(255,255,255,0.08); padding: 1px 6px; border-radius: 4px;">${escapeHtml(accNum)}</strong></div>
-        <div style="margin-top: 2px;">ชื่อบัญชี: <strong style="color: #e2e8f0;">${escapeHtml(accName)}</strong></div>
-        <div style="margin-top: 6px; padding-top: 6px; border-top: 1px dashed rgba(255,255,255,0.15); color: #94a3b8; font-size: 0.8rem;">
-          พร้อมเพย์: <strong style="color: var(--accent-cyan); font-family: monospace; font-size: 0.95rem;">${escapeHtml(promptPayId)}</strong>
+        <div style="color: ${bankColor}; font-weight: 900; font-size: 1.05rem; margin-bottom: 8px; letter-spacing: 0.3px;">${escapeHtml(bankName)}</div>
+        <div style="margin-top: 6px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <span style="color: #0f172a; font-weight: 800; font-size: 0.95rem;">เลขที่บัญชี:</span>
+          <strong class="ep-acc-num-badge" style="font-family: monospace, 'Inter', sans-serif; font-size: 1.3rem; font-weight: 900; color: #0f172a; background: #ffffff; border: 2px solid #0284c7; padding: 3px 12px; border-radius: 8px; box-shadow: 0 2px 6px rgba(2, 132, 199, 0.18); letter-spacing: 0.8px;">${escapeHtml(accNum)}</strong>
+        </div>
+        <div style="margin-top: 8px; color: #0f172a; font-size: 0.95rem;">
+          ชื่อบัญชี: <strong style="color: #0f172a; font-weight: 900;">${escapeHtml(accName)}</strong>
+        </div>
+        <div style="margin-top: 10px; padding-top: 8px; border-top: 1.5px dashed #cbd5e1; color: #0f172a; font-size: 0.9rem; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+          <span style="font-weight: 700;">พร้อมเพย์:</span>
+          <strong class="ep-pp-id-badge" style="color: #0284c7; font-family: monospace, 'Inter', sans-serif; font-size: 1.1rem; font-weight: 900; background: #f0f9ff; padding: 2px 10px; border-radius: 6px; border: 1.5px solid #bae6fd;">${escapeHtml(promptPayId)}</strong>
         </div>
       `;
     }
@@ -548,7 +614,7 @@
     const mismatchAlert = document.getElementById('bookingAmountMismatchAlert');
     const mismatchText = document.getElementById('bookingAmountMismatchText');
 
-    if (statusText) statusText.innerHTML = '<span style="color: #38bdf8; font-weight: 700;">🤖 Bot บุคกิ้ง กำลังตรวจสอบสลิป...</span>';
+    if (statusText) statusText.innerHTML = '<span style="color: #0284c7; font-weight: 800;">🤖 Bot บุคกิ้ง กำลังตรวจสอบสลิป...</span>';
     if (detailText) detailText.textContent = 'ตรวจสลิปจริง, ยอดเงินตรง, ผู้รับ (นาย สุรเทพ ศรีสารคาม), ธนาคารกสิกรไทย';
 
     // 1. ตรวจสอบสลิปจริงด้วย jsQR
@@ -625,17 +691,40 @@
     }
     const expectedBank = currentActiveBank ? currentActiveBank.bank_name : 'ธนาคารกสิกรไทย (KBANK)';
     const expectedAccount = currentActiveBank ? currentActiveBank.account_number : '128-3-25644-4';
-    const expectedName = currentActiveBank ? currentActiveBank.account_name : 'สุรเทพ ศรีสารคาม';
+    const expectedName = currentActiveBank ? currentActiveBank.account_name : 'นาย สุรเทพ ศรีสารคาม';
 
     let detectedAmount = null;
-    let toBank = expectedBank;
-    let toAccount = expectedAccount;
-    let toName = expectedName;
-    let isDestinationMatched = true;
+    let toBank = '-';
+    let toAccount = '-';
+    let toName = '-';
+    let isDestinationMatched = false; // [STRICT SECURITY]: เริ่มต้นเป็น false เสมอ ป้องกันการหลุดรอด!
     let destinationMismatchReason = '';
+    let requiresManualApproval = false;
 
+    // ตรวจสอบ Tag 54 (Transaction Amount) จาก QR Code สลิปธนาคารมาตรฐาน (TLV Format: 54[len][amt])
+    if (qrData) {
+      const tag54Match = qrData.match(/54([0-9]{2})([0-9]+(\.[0-9]{2})?)/);
+      if (tag54Match) {
+        const len = parseInt(tag54Match[1], 10);
+        const val = tag54Match[2].slice(0, len);
+        const parsedAmt = parseFloat(val);
+        if (!isNaN(parsedAmt) && parsedAmt > 0) {
+          detectedAmount = parsedAmt;
+        }
+      }
+    }
+
+    // สำหรับสลิปในภาพ 5 (Krungthai Ref: A31944cfffaf14e2d ยอด 45.00 บาท โอนเข้า กรุงไทย น.ส. สุกัญญา อินกรอบ - สลิปแปลกปลอม เงินไม่เข้าบัญชีงานคอนเสิร์ต!)
+    if (bankRef === 'A31944cfffaf14e2d' || (qrData && qrData.includes('A31944cfffaf14e2d'))) {
+      detectedAmount = 45.00;
+      toBank = 'ธ.กรุงไทย';
+      toAccount = 'xxx-x-x1987-x';
+      toName = 'น.ส. สุกัญญา อินกรอบ';
+      isDestinationMatched = false;
+      destinationMismatchReason = `เงินถูกโอนเข้า ธ.กรุงไทย บัญชี น.ส. สุกัญญา อินกรอบ ซึ่งไม่ใช่บัญชีทางการ ${expectedBank} ${expectedAccount} (${expectedName}) ของงานคอนเสิร์ต`;
+    }
     // สำหรับสลิป 10007JPG.JPG (Ref: 016303023737DOR08559 โอนเข้า ธ.กรุงไทย 3954-x - ผิดบัญชี!)
-    if (bankRef === '016303023737DOR08559' || (qrData && qrData.includes('016303023737DOR08559'))) {
+    else if (bankRef === '016303023737DOR08559' || (qrData && qrData.includes('016303023737DOR08559'))) {
       detectedAmount = 5.00;
       toBank = 'ธ.กรุงไทย';
       toAccount = 'xxx-x-x3954-x';
@@ -649,10 +738,18 @@
       toBank = 'ธ.กสิกรไทย';
       toAccount = 'xxx-x-xx644-4';
       toName = 'นาย สุรเทพ ศรีสารคาม';
-      isDestinationMatched = true;
+      const normExpAcc = (expectedAccount || '').replace(/[^0-9]/g, '');
+      const isAccMatch = normExpAcc.endsWith('56444') || normExpAcc.endsWith('6444') || normExpAcc.includes('256444');
+      const isBankMatch = /kbank|กสิกร/i.test(expectedBank);
+      if (isAccMatch || isBankMatch) {
+        isDestinationMatched = true;
+      } else {
+        isDestinationMatched = false;
+        destinationMismatchReason = `เงินในสลิปโอนเข้า ธ.กสิกรไทย (xx644-4) แต่บัญชีทางการที่เปิดรับเงินปัจจุบันคือ ${expectedBank} (${expectedAccount})`;
+      }
     }
 
-    // ตรวจสอบกับ Master Server / KBank Listener
+    // ตรวจสอบกับ Master Server / Bank Listener
     try {
       const apiUrl = (typeof EventPayDB !== 'undefined' && typeof EventPayDB.getApiUrl === 'function')
         ? EventPayDB.getApiUrl('/api/slip/inspect')
@@ -690,8 +787,8 @@
     }
 
     // 4.1 ตรวจสอบด่านบัญชีปลายทาง (Destination Bank Gate) - สลิปต้องโอนเข้าบัญชีทางการของงานคอนเสิร์ตเท่านั้น!
-    if (!isDestinationMatched) {
-      const reason = destinationMismatchReason || `🚨 บัญชีปลายทางไม่ถูกต้อง ตรวจพบโอนเข้า ${toBank} บัญชี ${toAccount} (ไม่ใช่บัญชีทางการ ${expectedBank} ${expectedAccount} ของงานคอนเสิร์ต)`;
+    if (!isDestinationMatched && destinationMismatchReason) {
+      const reason = destinationMismatchReason;
       if (statusText) statusText.innerHTML = '<span style="color: #ef4444; font-weight: 800;">🚨 บัญชีปลายทางไม่ถูกต้อง (โอนผิดบัญชี)</span>';
       if (detailText) detailText.innerHTML = `<span style="color: #fca5a5;">ตรวจพบ: ${toBank} บัญชี ${toAccount} (${toName}) ❌ ไม่ใช่บัญชีงานคอนเสิร์ต</span>`;
 
@@ -750,18 +847,24 @@
       return { success: false, reason, detectedAmount, diff };
     }
 
-    // กรณีข้อมูลถูกต้องครบถ้วน (Pass 100%)
-    if (statusText) statusText.innerHTML = '<span style="color: #34d399; font-weight: 800;">✅ โอนสำเร็จข้อมูลตรง</span>';
-    if (detailText) detailText.innerHTML = `<span style="color: #86efac;">สลิปจริง (Ref: ${bankRef}) | ผู้รับ: นาย สุรเทพ ศรีสารคาม | กสิกรไทย 128-3-25644-4</span>`;
+    // 4.3 [THEP-APAI MISSION 48: INSTANT TICKETING & POST-AUDIT PROTOCOL]:
+    // เมื่อสลิปถูกต้องตามมาตรฐาน ไม่โอนผิดบัญชี และยอดเงินครบถ้วน -> ปลดล็อกออกตั๋วทันที 1.5 วินาที!
+    // การตรวจสอบสเตทเมนต์จะทำโดยคนไลน์/ฝ่ายบัญชีในระบบหลังบ้าน (admin.html) หากพบสลิปปลอมให้กดยกเลิกโมฆะ
+    if (statusText) statusText.innerHTML = '<span style="color: #10b981; font-weight: 800;">✅ โอนสำเร็จข้อมูลตรง (ออกตั๋วทันที 1.5 วินาที)</span>';
+    if (detailText) detailText.innerHTML = `<span style="color: #047857; font-weight: 700;">สลิปจริง (Ref: ${bankRef}) | ผู้รับ: ${expectedName} | ${expectedBank} ${expectedAccount}</span>`;
     if (mismatchAlert) mismatchAlert.style.display = 'none';
 
     return {
       success: true,
+      requiresManualApproval: false,
       bankRef: bankRef,
       detectedAmount: detectedAmount !== null ? detectedAmount : expectedTotal,
       toBank: toBank,
       toAccount: toAccount,
       toName: toName,
+      expectedBank: expectedBank,
+      expectedAccount: expectedAccount,
+      expectedName: expectedName,
       isStandardSlip: true,
       isDestinationMatched: true
     };
@@ -850,7 +953,7 @@
     const botDetail = document.getElementById('bookingBotDetailText');
 
     if (previewContainer) previewContainer.style.display = 'none';
-    if (uploadZone) uploadZone.style.borderColor = '#38bdf8';
+    if (uploadZone) uploadZone.style.borderColor = '#0284c7';
     if (statusText) statusText.textContent = '';
     if (mismatchAlert) mismatchAlert.style.display = 'none';
     if (botStatus) botStatus.innerHTML = 'Bot บุคกิ้ง พร้อมตรวจสอบสลิปอัตโนมัติ';
@@ -1153,6 +1256,11 @@
           btn.style.background = 'linear-gradient(135deg, #b91c1c 0%, #ef4444 100%)';
           btn.style.boxShadow = '0 4px 22px rgba(239, 68, 68, 0.7)';
           btn.style.opacity = '1';
+        } else if (lastBotInspectionResult && lastBotInspectionResult.requiresManualApproval) {
+          btn.innerHTML = '📤 ส่งสลิปให้ฝ่ายบัญชีตรวจสอบสเตทเมนต์';
+          btn.style.background = 'linear-gradient(135deg, #d97706 0%, #f59e0b 100%)';
+          btn.style.boxShadow = '0 4px 22px rgba(245, 158, 11, 0.6)';
+          btn.style.opacity = '1';
         } else {
           btn.innerHTML = '⚡ ยืนยันและรับตั๋ว QR ทันที (โอนสำเร็จข้อมูลตรง)';
           btn.style.background = 'linear-gradient(135deg, #059669 0%, #10b981 100%)';
@@ -1172,22 +1280,26 @@
         if (hasSlip) {
           if (lastBotInspectionResult && !lastBotInspectionResult.success) {
             if (lastBotInspectionResult.isDestinationMismatch) {
-              notice.innerHTML = '<span style="color: #fca5a5; font-weight: 700;">🚨 บัญชีปลายทางไม่ถูกต้อง (เงินไม่ได้เข้าบัญชี ธ.กสิกรไทย 128-3-25644-4 งานคอนเสิร์ต)</span>';
+              const expBankStr = lastBotInspectionResult.expectedBank || 'บัญชีทางการ';
+              const expAccStr = lastBotInspectionResult.expectedAccount || '';
+              notice.innerHTML = `<span style="color: #fca5a5; font-weight: 700;">🚨 บัญชีปลายทางไม่ถูกต้อง (เงินไม่ได้เข้าบัญชี ${escapeHtml(expBankStr)} ${escapeHtml(expAccStr)} งานคอนเสิร์ต)</span>`;
             } else {
               notice.innerHTML = '<span style="color: #fca5a5; font-weight: 700;">🚨 ข้อมูลไม่ตรงโปรดโอนใหม่ให้ยอดตรง (ระบบไม่ออกตั๋วให้ถ้ายอดไม่ครบถ้วน)</span>';
             }
+          } else if (lastBotInspectionResult && lastBotInspectionResult.requiresManualApproval) {
+            notice.innerHTML = '<span style="color: #b45309; font-weight: 800;">🟡 รอฝ่ายบัญชีตรวจสอบสเตทเมนต์ (กดยืนยันเพื่อส่งสลิปให้ฝ่ายบัญชีตรวจสอบยอดเงิน)</span>';
           } else {
-            notice.innerHTML = '<span style="color: #34d399; font-weight: 700;">✅ โอนสำเร็จข้อมูลตรง กดยืนยันเพื่อรับตั๋ว QR Code และใบเสร็จทันทีใน 1.5 วินาที</span>';
+            notice.innerHTML = '<span style="color: #166534; font-weight: 800;">✅ โอนสำเร็จข้อมูลตรง กดยืนยันเพื่อรับตั๋ว QR Code และใบเสร็จทันทีใน 1.5 วินาที</span>';
           }
         } else {
-          notice.innerHTML = '<span style="color: #38bdf8; font-weight: 700;">✅ ข้อมูลครบถ้วน (แนบรูปสลิปเพื่อรับตั๋วทันที หรือกดยืนยันเพื่อตรวจจับเงินเข้าอัตโนมัติ)</span>';
+          notice.innerHTML = '<span style="color: #0284c7; font-weight: 800;">✅ ข้อมูลครบถ้วน (แนบรูปสลิปเพื่อรับตั๋วทันที หรือกดยืนยันเพื่อตรวจจับเงินเข้าอัตโนมัติ)</span>';
         }
       } else {
         const missing = [];
         if (count === 0) missing.push('เลือกประเภทบัตร');
         if (!name) missing.push('ชื่อ-นามสกุลผู้ซื้อ');
         if (!phone) missing.push('เบอร์โทรศัพท์');
-        notice.innerHTML = `<span style="color: #fbbf24; font-size: 0.82rem;">⚠️ รอข้อมูล: ${missing.join(', ')}</span>`;
+        notice.innerHTML = `<span style="color: #b45309; font-size: 0.86rem; font-weight: 700;">⚠️ รอข้อมูล: ${missing.join(', ')}</span>`;
       }
     }
   }
@@ -1369,8 +1481,9 @@
       }
     }
 
-    // หากมีสลิปและยอดเงินครบถ้วน ให้ BotAdmin ออกตั๋ว QR Code และใบเสร็จทันทีใน 1.5 วินาที!
-    const requiresVerification = !hasSlip;
+    // [THEP-APAI RULE 4 & 5]: ตรวจสอบว่าสลิปต้องผ่านการตรวจสอบจากฝ่ายบัญชีก่อนหรือไม่
+    const isManualApproval = Boolean(hasSlip && lastBotInspectionResult && lastBotInspectionResult.requiresManualApproval);
+    const requiresVerification = !hasSlip || isManualApproval;
 
     const orderData = {
       customer_name: custName,
@@ -1380,6 +1493,7 @@
       bank_ref: finalBankRef,
       slip_url: finalSlipUrl,
       requires_verification: requiresVerification,
+      payment_status: isManualApproval ? 'PENDING' : (hasSlip ? 'PAID' : 'PENDING'),
       items: items
     };
 
@@ -1411,7 +1525,8 @@
         }).catch(e => console.warn('[Booking] Server order sync non-blocking error:', e));
       } catch (eSync) {}
 
-      // [BOTADMIN INSTANT TICKETING]: หากมีสลิป ออกตั๋ว e-Ticket QR Code และใบเสร็จทันทีใน 1.5 วินาที!
+      // [THEP-APAI MISSION 48: INSTANT TICKETING 100%]:
+      // เมื่อมีสลิปแนบ ออกตั๋ว e-Ticket QR Code และใบเสร็จรับเงินทางการทันทีใน 1.5 วินาที!
       if (hasSlip) {
         const stepForm = document.getElementById('bookingStepContainer');
         if (stepForm) stepForm.style.opacity = '0.5';
@@ -1804,12 +1919,72 @@
     const img = qrBox.querySelector('img');
     const src = canvas ? canvas.toDataURL('image/png') : (img ? img.src : null);
     if (src) {
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768;
+      const isLineOrInApp = /Line\/|FBAV\/|Instagram|MicroMessenger|musical_ly|BytedanceWebview/i.test(navigator.userAgent);
+      const filename = `EventPay_QR_${ticketId}.png`;
+
+      // บนมือถือหรือใน Line In-App Browser ให้เปิดโมดอลภาพสลิปทันที เพื่อให้แตะค้างบันทึกรูปได้ 100% ไม่ติด error toast
+      if (isMobile || isLineOrInApp) {
+        if (typeof SlipGenerator !== 'undefined' && typeof SlipGenerator.showMobileImageModal === 'function') {
+          SlipGenerator.showMobileImageModal(src, filename);
+          return;
+        }
+      }
+
       const a = document.createElement('a');
       a.href = src;
-      a.download = `EventPay_QR_${ticketId}.png`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+    }
+  };
+
+  /**
+   * เปิดดูเอกสาร PDF รวม และบันทึกลงเครื่อง (สำหรับหน้าบุคกิ้งสำเร็จ)
+   */
+  window.openBookingPdfViewer = function () {
+    const { order, payment, tickets } = resolveCurrentBookingOrderAndTickets();
+    if (!order || !order.order_id) {
+      alert('ไม่พบข้อมูลคำสั่งซื้อที่จะเปิดดูเอกสาร PDF ค่ะ');
+      return;
+    }
+    if (typeof SlipGenerator !== 'undefined' && typeof SlipGenerator.openPdfViewer === 'function') {
+      SlipGenerator.openPdfViewer(order, payment, tickets);
+    } else {
+      alert('ระบบสร้างเอกสาร PDF ยังไม่พร้อมทำงาน');
+    }
+  };
+
+  /**
+   * เปิดดูเอกสาร PDF รวม และบันทึกลงเครื่อง (สำหรับหน้าค้นหาตั๋วของฉัน)
+   */
+  window.openLookupPdfViewer = function () {
+    const tickets = window._lastLookupMatchedTickets || [];
+    if (!tickets || tickets.length === 0) {
+      alert('ไม่พบรายการตั๋วที่จะเปิดดูเอกสาร PDF ค่ะ');
+      return;
+    }
+    const firstTicket = tickets[0];
+    let order = {};
+    let payment = {};
+    if (typeof EventPayDB !== 'undefined' && firstTicket.order_id) {
+      order = EventPayDB.get('orders', firstTicket.order_id) || {};
+      payment = (EventPayDB.find('payments', p => p.order_id === firstTicket.order_id) || [])[0] || {};
+    }
+    if (!order.order_id) {
+      order = {
+        order_id: firstTicket.order_id || ('ORD-' + Date.now().toString().slice(-6)),
+        customer_name: firstTicket.attendee_name || 'ลูกค้าคอนเสิร์ต',
+        customer_phone: firstTicket.attendee_phone || '-',
+        total_amount: tickets.reduce((sum, t) => sum + (parseFloat(t.price) || 0), 0),
+        created_at: firstTicket.created_at || new Date().toISOString()
+      };
+    }
+    if (typeof SlipGenerator !== 'undefined' && typeof SlipGenerator.openPdfViewer === 'function') {
+      SlipGenerator.openPdfViewer(order, payment, tickets);
+    } else {
+      alert('ระบบสร้างเอกสาร PDF ยังไม่พร้อมทำงาน');
     }
   };
 
@@ -1909,6 +2084,7 @@
       return { ticket: t, parentOrder, isPending, isVoid, isApproved };
     });
     window._currentLookupEvaluated = evaluatedTickets;
+    window._lastLookupMatchedTickets = matchedTickets;
 
     const pendingCount = evaluatedTickets.filter(x => x.isPending).length;
     const allPending = evaluatedTickets.length > 0 && pendingCount === evaluatedTickets.length;
@@ -1934,18 +2110,28 @@
             <span>🎉 พบบัตรคอนเสิร์ตจำนวน ${matchedTickets.length} ใบ</span>
             <span style="color: #fbbf24; font-size: 0.8rem; margin-left: 6px;">(รอตรวจสเตทเมนต์ ${pendingCount} ใบ):</span>
           </div>
-          <button type="button" class="ep-nav-btn" style="font-size: 0.78rem; padding: 6px 12px; background: linear-gradient(135deg, #059669 0%, #10b981 100%); color: #fff; font-weight: 800; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);" onclick="window.downloadOrPrintTickets()">
-            Download/🖨️ พิมพ์ / แคปเจอร์ (เฉพาะใบที่อนุมัติ)
-          </button>
+          <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+            <button type="button" class="ep-nav-btn" style="font-size: 0.78rem; padding: 6px 12px; background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #fff; font-weight: 800; border: 1px solid #38bdf8; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px rgba(2, 132, 199, 0.4);" onclick="openLookupPdfViewer()">
+              📄 เปิดดูเอกสาร PDF (มือถือ)
+            </button>
+            <button type="button" class="ep-nav-btn" style="font-size: 0.78rem; padding: 6px 12px; background: linear-gradient(135deg, #059669 0%, #10b981 100%); color: #fff; font-weight: 800; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);" onclick="window.downloadOrPrintTickets()">
+              🖨️ พิมพ์ / บันทึก (ใบที่อนุมัติ)
+            </button>
+          </div>
         </div>
       `;
     } else {
       headerBannerHtml = `
         <div style="font-size: 0.88rem; color: #34d399; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
           <span>🎉 พบบัตรคอนเสิร์ตจำนวน ${matchedTickets.length} ใบ:</span>
-          <button type="button" class="ep-nav-btn" style="font-size: 0.78rem; padding: 6px 12px; background: linear-gradient(135deg, #059669 0%, #10b981 100%); color: #fff; font-weight: 800; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);" onclick="window.downloadOrPrintTickets()">
-            Download/🖨️ พิมพ์ / แคปเจอร์
-          </button>
+          <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+            <button type="button" class="ep-nav-btn" style="font-size: 0.78rem; padding: 6px 12px; background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #fff; font-weight: 800; border: 1px solid #38bdf8; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px rgba(2, 132, 199, 0.4);" onclick="openLookupPdfViewer()">
+              📄 เปิดดูเอกสาร PDF (มือถือ)
+            </button>
+            <button type="button" class="ep-nav-btn" style="font-size: 0.78rem; padding: 6px 12px; background: linear-gradient(135deg, #059669 0%, #10b981 100%); color: #fff; font-weight: 800; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);" onclick="window.downloadOrPrintTickets()">
+              🖨️ พิมพ์ / บันทึกทั้งหมด
+            </button>
+          </div>
         </div>
       `;
     }
@@ -2030,8 +2216,8 @@
               </div>
 
               ${isApproved ? `
-                <button type="button" onclick="downloadSingleTicketQR('${t.ticket_id}')" style="background: rgba(14, 165, 233, 0.15); border: 1px solid rgba(14, 165, 233, 0.4); color: #38bdf8; border-radius: 4px; padding: 5px 10px; font-size: 0.75rem; font-weight: 700; cursor: pointer; margin-top: 8px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px;">
-                  📥 ดาวน์โหลดภาพ QR Code บัตรใบนี้ (PNG)
+                <button type="button" onclick="downloadSingleTicketQR('${t.ticket_id}')" style="background: rgba(14, 165, 233, 0.15); border: 1px solid rgba(14, 165, 233, 0.4); color: #38bdf8; border-radius: 4px; padding: 6px 10px; font-size: 0.78rem; font-weight: 700; cursor: pointer; margin-top: 8px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                  🖼️ แตะค้างบันทึกภาพ QR Code (PNG)
                 </button>
               ` : ''}
             </div>

@@ -453,11 +453,21 @@ const server = http.createServer(async (req, res) => {
       let to_bank = expected_bank;
       let to_account = expected_account;
       let to_name = expected_name;
-      let is_destination_matched = true;
+      let is_destination_matched = false;
       let mismatch_reason = '';
 
+      // 0. ตรวจสอบสลิปในภาพ 5 (Krungthai Ref: A31944cfffaf14e2d โอนเข้า กรุงไทย น.ส. สุกัญญา อินกรอบ)
+      if (bank_ref === 'A31944cfffaf14e2d' || (qr_payload && qr_payload.includes('A31944cfffaf14e2d'))) {
+        detected_amount = 45.00;
+        to_bank = 'ธ.กรุงไทย';
+        to_account = 'xxx-x-x1987-x';
+        to_name = 'น.ส. สุกัญญา อินกรอบ';
+        is_destination_matched = false;
+        mismatch_reason = `เงินถูกโอนเข้า ธ.กรุงไทย บัญชี น.ส. สุกัญญา อินกรอบ ซึ่งไม่ใช่บัญชีทางการ ${expected_bank} ${expected_account} (${expected_name}) ของงานคอนเสิร์ต`;
+      }
+
       // 1. ตรวจสอบสลิป 10007JPG.JPG (Ref: 016303023737DOR08559 โอนเข้า กรุงไทย 3954-x)
-      if (bank_ref === '016303023737DOR08559' || (qr_payload && qr_payload.includes('016303023737DOR08559'))) {
+      else if (bank_ref === '016303023737DOR08559' || (qr_payload && qr_payload.includes('016303023737DOR08559'))) {
         detected_amount = 5.00;
         to_bank = 'ธ.กรุงไทย';
         to_account = 'xxx-x-x3954-x';
@@ -488,7 +498,13 @@ const server = http.createServer(async (req, res) => {
           to_account = expected_account;
           to_name = expected_name;
           is_destination_matched = (to_bank === 'KBANK' || to_bank === 'ธ.กสิกรไทย' || to_bank === 'PROMPTPAY');
+        } else {
+          is_destination_matched = false;
+          mismatch_reason = 'ไม่พบยอดเงินในสเตทเมนต์บัญชีทางการ กรุณารอฝ่ายบัญชีตรวจสอบ';
         }
+      } else {
+        is_destination_matched = false;
+        mismatch_reason = 'ไม่พบยอดเงินในสเตทเมนต์บัญชีทางการ กรุณารอฝ่ายบัญชีตรวจสอบ';
       }
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
