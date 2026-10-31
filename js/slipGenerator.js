@@ -13,6 +13,83 @@
 
   const SlipGenerator = {};
 
+  // Helper: ป้องกัน XSS และรองรับการเรนเดอร์ข้อความอย่างปลอดภัย 100%
+  function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+  if (typeof window !== 'undefined') {
+    window.escapeHtml = escapeHtml;
+  }
+  function _orig_escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+
+  // Helper: Self-Healing Receipt Items Fallback (Thep-Apai Mission 53)
+  function getResolvedReceiptItems(order, tickets) {
+    let items = [];
+    if (order && Array.isArray(order.items) && order.items.length > 0) {
+      items = order.items.map(it => ({
+        name: it.tier_name || it.name || it.tier_id || 'บัตรคอนเสิร์ต',
+        quantity: parseInt(it.quantity || 1, 10),
+        unit_price: parseFloat(it.unit_price || 0),
+        subtotal: parseFloat(it.subtotal || (it.quantity * it.unit_price) || 0)
+      }));
+    } else if (tickets && tickets.length > 0) {
+      const summary = {};
+      tickets.forEach(t => {
+        const name = t.tier_name || 'บัตรคอนเสิร์ต';
+        if (!summary[name]) {
+          summary[name] = { name: name, quantity: 0, tier_id: t.tier_id, unit_price: 0 };
+        }
+        summary[name].quantity++;
+      });
+      const allTiers = (typeof EventPayDB !== 'undefined' && EventPayDB.getAll) ? EventPayDB.getAll('ticket_tiers') : [];
+      const totalAmount = parseFloat((order && order.total_amount) || 0);
+      Object.keys(summary).forEach(k => {
+        const s = summary[k];
+        const tierObj = allTiers.find(x => x.tier_id === s.tier_id || x.name === s.name);
+        s.unit_price = tierObj ? parseFloat(tierObj.price || 0) : (totalAmount && tickets.length > 0 ? (totalAmount / tickets.length) : 0);
+        s.subtotal = s.quantity * s.unit_price;
+        items.push(s);
+      });
+    } else if (order && order.tier_id) {
+      const allTiers = (typeof EventPayDB !== 'undefined' && EventPayDB.getAll) ? EventPayDB.getAll('ticket_tiers') : [];
+      const tierObj = allTiers.find(x => x.tier_id === order.tier_id);
+      const totalAmount = parseFloat(order.total_amount || 0);
+      const qty = parseInt(order.ticket_count || order.quantity || 1, 10);
+      const unitPrice = tierObj ? parseFloat(tierObj.price || 0) : (qty > 0 ? (totalAmount / qty) : totalAmount);
+      items.push({
+        name: tierObj ? tierObj.name : (order.tier_name || 'บัตรคอนเสิร์ต'),
+        quantity: qty,
+        unit_price: unitPrice,
+        subtotal: totalAmount || (qty * unitPrice)
+      });
+    } else if (order && order.total_amount) {
+      const totalAmount = parseFloat(order.total_amount || 0);
+      items.push({
+        name: order.tier_name || 'บัตรคอนเสิร์ต',
+        quantity: 1,
+        unit_price: totalAmount,
+        subtotal: totalAmount
+      });
+    }
+    return items;
+  }
+  if (typeof window !== 'undefined') window.getResolvedReceiptItems = getResolvedReceiptItems;
+
   // Helper: แปลงตัวเลขเป็นคำอ่านบาทไทย
   function numberToThaiBaht(num) {
     if (isNaN(num)) return '-';
@@ -206,7 +283,7 @@
       ctx.fillStyle = '#0f172a';
       ctx.font = 'bold 22px "Tahoma", "Segoe UI", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('*** ใบเสร็จรับเงิน ***', width / 2, curY);
+      ctx.fillText('ใบเสร็จรับเงิน', width / 2, curY);
 
       curY += 32;
       ctx.font = 'bold 26px "Tahoma", "Segoe UI", sans-serif';
@@ -501,363 +578,156 @@
         <img src="${dataUrl}" alt="EventPay Slip" style="width: 100%; max-width: 440px; height: auto; border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.15); margin-bottom: 16px;">
 
         <div style="display: flex; flex-direction: column; gap: 10px; width: 100%; justify-content: center; margin-bottom: 24px;">
-          <a href="${dataUrl}" download="${filename || 'EventPay_Ticket.png'}" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #fff; text-decoration: none; padding: 12px 20px; border-radius: 8px; font-weight: 800; font-size: 0.95rem; text-align: center; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4); display: flex; align-items: center; justify-content: center; gap: 8px;">
-            💾 ดาวน์โหลดรูปภาพลงเครื่อง (Save PNG)
-          </a>
-          <button type="button" onclick="if(window.openBookingPdfViewer){window.openBookingPdfViewer();}else if(window.openLookupPdfViewer){window.openLookupPdfViewer();}else{alert('กรุณาเปิดจากหน้าบุคกิ้งค่ะ');}" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #fff; padding: 12px 20px; border-radius: 8px; font-weight: 800; border: 1px solid #38bdf8; cursor: pointer; width: 100%; font-size: 0.95rem; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 14px rgba(2, 132, 199, 0.4);">
-            📄 เปิดดูเอกสารรวม / บันทึกเป็น PDF (ในมือถือ)
+          <button type="button" onclick="SlipGenerator.triggerDirectDownload('${dataUrl}', '${filename || 'EventPay_Ticket.png'}'); window.shareCurrentSlipImage('${filename || 'EventPay_Ticket.png'}')" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #fff; border: none; padding: 12px 20px; border-radius: 8px; font-weight: 800; font-size: 0.95rem; text-align: center; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4); display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;">
+            📲 บันทึก / แชร์รูปภาพ (Share & Save)
           </button>
           <button type="button" onclick="document.getElementById('epSlipMobilePreviewModal').style.display='none'" style="background: #334155; color: #fff; padding: 12px 24px; border-radius: 8px; font-weight: 700; border: none; cursor: pointer; width: 100%; font-size: 1rem;">
-            ✓ เรียบร้อยแล้ว (ปิด)
+            ✕ ปิดหน้าต่าง (Close)
           </button>
         </div>
       </div>
     `;
     modal.style.display = 'flex';
     modal.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  // Web Share API Helper สำหรับแชร์รูปภาพสลิปบนมือถือเข้า LINE หรือบันทึกภาพ
+  window.shareCurrentSlipImage = async function (filename) {
+    const modal = document.getElementById('epSlipMobilePreviewModal');
+    const img = modal ? modal.querySelector('img') : null;
+    if (!img || !img.src) return;
+
+    if (navigator.share) {
+      try {
+        const res = await fetch(img.src);
+        const blob = await res.blob();
+        const file = new File([blob], filename || 'EventPay_Ticket.png', { type: 'image/png' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            title: 'ใบเสร็จรับเงิน / ตั๋วคอนเสิร์ต EventPay',
+            text: 'หลักฐานทางการ EventPay Official Concert',
+            files: [file]
+          });
+          return;
+        }
+      } catch (err) {
+        if (err && err.name !== 'AbortError') {
+          console.warn('[WebShare] share error:', err);
+        }
+      }
+    }
+    // คำแนะนำกรณีเบราว์เซอร์ไม่รองรับ Web Share API ให้แตะค้างบันทึกรูป
+    alert('👉 คำแนะนำสำหรับมือถือ:\nแตะค้างที่รูปภาพบนหน้าจอ แล้วเลือก "บันทึกรูปภาพ" (Save Image) หรือ "ส่งต่อเข้าแอป LINE" ได้ทันทีค่ะ');
+  };
+
+  // Universal Direct Downloader for both Mobile and Desktop (Thep-Apai Mission 54)
+  SlipGenerator.triggerDirectDownload = function (dataUrlOrBlob, filename) {
+    filename = filename || 'EventPay_Document.png';
+    try {
+      let blobObj = dataUrlOrBlob;
+      if (typeof dataUrlOrBlob === 'string' && dataUrlOrBlob.startsWith('data:')) {
+        const parts = dataUrlOrBlob.split(',');
+        const mime = parts[0].match(/:(.*?);/)[1] || 'image/png';
+        const bstr = atob(parts[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+          u8arr[n] = bstr.charCodeAt(n);
+        }
+        blobObj = new Blob([u8arr], { type: mime });
+      }
+
+      if (blobObj instanceof Blob) {
+        const blobUrl = URL.createObjectURL(blobObj);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = blobUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          if (a.parentNode) document.body.removeChild(a);
+          URL.revokeObjectURL(blobUrl);
+        }, 3000);
+      } else {
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = dataUrlOrBlob;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          if (a.parentNode) document.body.removeChild(a);
+        }, 3000);
+      }
+    } catch (e) {
+      console.warn('[SlipGenerator] Direct download fallback triggered:', e);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = dataUrlOrBlob;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { if (a.parentNode) document.body.removeChild(a); }, 3000);
+    }
+  };
+
+  // Sleek floating feedback toast on mobile when download is initiated
+  SlipGenerator.showDownloadSuccessToast = function (filename) {
+    if (typeof document === 'undefined') return;
+    let toast = document.getElementById('epDownloadSuccessToast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'epDownloadSuccessToast';
+      toast.style.cssText = `
+        position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+        background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+        color: #ffffff; padding: 12px 22px; border-radius: 10px;
+        font-weight: 800; font-size: 0.92rem; z-index: 999999999;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); display: flex;
+        align-items: center; gap: 8px; transition: opacity 0.4s ease;
+        pointer-events: none; max-width: 90vw; text-align: center;
+      `;
+      document.body.appendChild(toast);
+    }
+    toast.innerHTML = `<span>💾</span> <span>ดาวน์โหลดไฟล์ <strong>${escapeHtml(filename)}</strong> ลงเครื่องแล้วค่ะ</span>`;
+    toast.style.opacity = '1';
+    toast.style.display = 'flex';
+    clearTimeout(window._epToastTimeout);
+    window._epToastTimeout = setTimeout(() => {
+      toast.style.opacity = '0';
+      setTimeout(() => { toast.style.display = 'none'; }, 400);
+    }, 3500);
   };
 
   SlipGenerator.downloadCanvasAsImage = function (canvas, filename) {
     if (!canvas) return;
 
+    filename = filename || 'EventPay_Ticket.png';
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768;
-    const isLineOrInApp = /Line\/|FBAV\/|Instagram|MicroMessenger|musical_ly|BytedanceWebview/i.test(navigator.userAgent);
     const dataUrl = canvas.toDataURL('image/png', 1.0);
 
-    // 1. บนมือถือหรือใน In-App Browser (LINE, Facebook) ให้เปิดโมดอลภาพสลิปทันที เพื่อให้แตะค้างบันทึกรูปได้ 100%
-    if (isMobile || isLineOrInApp) {
-      SlipGenerator.showMobileImageModal(dataUrl, filename);
-      // [CRITICAL MOBILE LINE FIX]: หยุดทำงานทันที ไม่ยิง a.click() เพื่อป้องกันเบราว์เซอร์ LINE แสดง Error Toast "ไม่สามารถดาวน์โหลดไฟล์ได้"
-      return;
-    }
+    window._lastGeneratedCanvas = canvas;
+    window._lastGeneratedDataUrl = dataUrl;
+    window._lastGeneratedFilename = filename;
 
-    // 2. สำหรับเบราว์เซอร์ที่รองรับ Web Share API ให้สั่งแชร์ภาพเข้า Photos ได้ในคลิกเดียว
-    if (navigator.share && navigator.canShare && canvas.toBlob) {
-      try {
-        canvas.toBlob(blob => {
-          if (!blob) return;
-          const file = new File([blob], filename, { type: 'image/png' });
-          if (navigator.canShare({ files: [file] })) {
-            navigator.share({
-              files: [file],
-              title: 'บันทึกสลิปคอนเสิร์ต EventPay',
-              text: 'สลิปหลักฐานทางการคอนเสิร์ต EventPay'
-            }).catch(() => {});
-          }
-        }, 'image/png');
-      } catch (eShare) {}
-    }
-
-    // 3. ทริกเกอร์ดาวน์โหลดตามปกติ (สำหรับ PC Desktop / ทั่วไป)
-    try {
-      if (canvas.toBlob) {
-        canvas.toBlob(blob => {
-          if (!blob) {
-            const a = document.createElement('a');
-            a.href = dataUrl;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            return;
-          }
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.style.display = 'none';
-          a.href = url;
-          a.download = filename;
-          document.body.appendChild(a);
-          a.click();
-          setTimeout(() => {
-            if (document.body.contains(a)) document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-          }, 2000);
-        }, 'image/png');
-      } else {
-        const a = document.createElement('a');
-        a.href = dataUrl;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      }
-    } catch (err) {
-      console.warn('Auto download non-blocking warning:', err);
-    }
-  };
-
-  /**
-   * สร้างภาพ QR Code Data URL จากรหัสตั๋ว
-   */
-  async function generateQrDataUrl(text, size = 180) {
-    if (!text) return '';
-    if (typeof QRCode === 'undefined') return '';
-    return new Promise((resolve) => {
-      const div = document.createElement('div');
-      div.style.cssText = 'position: absolute; left: -9999px; top: -9999px; width: ' + size + 'px; height: ' + size + 'px;';
-      document.body.appendChild(div);
-      try {
-        new QRCode(div, {
-          text: text,
-          width: size,
-          height: size,
-          colorDark: '#000000',
-          colorLight: '#ffffff',
-          correctLevel: (typeof QRCode.CorrectLevel !== 'undefined') ? QRCode.CorrectLevel.M : 0
-        });
-        setTimeout(() => {
-          const canvas = div.querySelector('canvas');
-          const img = div.querySelector('img');
-          let src = '';
-          if (canvas) src = canvas.toDataURL('image/png');
-          else if (img) src = img.src;
-          if (document.body.contains(div)) document.body.removeChild(div);
-          resolve(src);
-        }, 80);
-      } catch (e) {
-        if (document.body.contains(div)) document.body.removeChild(div);
-        resolve('');
-      }
-    });
-  }
-
-  /**
-   * ระบบเปิดดูเอกสาร PDF รวม และบันทึกเป็น PDF บนมือถือ (Mobile PDF & In-App Viewport)
-   */
-  SlipGenerator.openPdfViewer = async function (order, payment = {}, tickets = []) {
-    if (!order || !order.order_id) {
-      alert('ไม่พบข้อมูลคำสั่งซื้อที่จะเปิดดูเอกสาร PDF ค่ะ');
-      return;
-    }
-
-    // สร้างหรืออัปเดต Print Stylesheet
-    let printStyle = document.getElementById('epPdfPrintStyles');
-    if (!printStyle) {
-      printStyle = document.createElement('style');
-      printStyle.id = 'epPdfPrintStyles';
-      printStyle.innerHTML = `
-        @media print {
-          body * { visibility: hidden !important; }
-          #epPdfViewerModal, #epPdfViewerModal * { visibility: visible !important; }
-          #epPdfViewerModal {
-            position: absolute !important; left: 0 !important; top: 0 !important;
-            width: 100% !important; height: auto !important;
-            background: #ffffff !important; padding: 0 !important; margin: 0 !important;
-            overflow: visible !important; backdrop-filter: none !important;
-          }
-          .ep-pdf-no-print { display: none !important; }
-          #epPdfPrintableSheet {
-            box-shadow: none !important; border-radius: 0 !important;
-            padding: 8mm 10mm !important; margin: 0 !important;
-            max-width: 100% !important; width: 100% !important;
-          }
-          .ep-pdf-ticket-page {
-            page-break-before: always !important;
-            break-before: page !important;
-          }
+    // [THEP-APAI MISSION 54: DIRECT MOBILE & DESKTOP PNG DOWNLOAD 100%]:
+    // ส่งคำสั่งดาวน์โหลดไฟล์ภาพ PNG ลงเครื่องโทรศัพท์มือถือ / คอมพิวเตอร์โดยตรงทันที ไม่ดักตัดด้วย return
+    if (canvas.toBlob) {
+      canvas.toBlob(blob => {
+        if (blob) {
+          SlipGenerator.triggerDirectDownload(blob, filename);
+        } else {
+          SlipGenerator.triggerDirectDownload(dataUrl, filename);
         }
-      `;
-      document.head.appendChild(printStyle);
-    }
-
-    let modal = document.getElementById('epPdfViewerModal');
-    if (!modal) {
-      modal = document.createElement('div');
-      modal.id = 'epPdfViewerModal';
-      modal.style.cssText = `
-        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        background: rgba(15, 23, 42, 0.95); z-index: 9999999;
-        display: none; flex-direction: column; align-items: center;
-        overflow-y: auto; backdrop-filter: blur(8px); padding: 12px; box-sizing: border-box;
-      `;
-      document.body.appendChild(modal);
+      }, 'image/png');
     } else {
-      modal.style.display = 'none';
+      SlipGenerator.triggerDirectDownload(dataUrl, filename);
     }
 
-    try {
-      // กำหนดค่าตัวเลขและข้อมูล
-      const totalAmount = parseFloat(order.total_amount || 0);
-      const formattedDate = new Date(order.created_at || Date.now()).toLocaleString('th-TH', {
-        year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-      });
-      const cashierText = (order.cashier_id === 'ONLINE_CUSTOMER') ? 'ระบบจองออนไลน์อัตโนมัติ (Online Self-Service)' : (order.cashier_id || 'ONLINE');
-      const paymentMethodText = (payment.method || order.payment_method || 'TRANSFER') === 'TRANSFER' ? 'โอนเงินผ่านธนาคาร / พร้อมเพย์ (PromptPay)' : (payment.method || 'เงินสด');
-      const bankRefText = order.bank_ref || payment.bank_ref || '-';
-
-      // สร้าง QR Code Image สำหรับตั๋วแต่ละใบ
-      const ticketQrImages = [];
-      for (let i = 0; i < tickets.length; i++) {
-        const t = tickets[i];
-        try {
-          const qrDataUrl = await generateQrDataUrl(t.qr_code_hash || t.ticket_id, 200);
-          ticketQrImages.push(qrDataUrl);
-        } catch (qrErr) {
-          console.warn('[SlipGenerator] QR generation fallback for ticket:', t.ticket_id, qrErr);
-          ticketQrImages.push('');
-        }
-      }
-
-    // รายการสินค้า
-    const itemsHtml = (order.items || []).map((item, idx) => {
-      const tierName = item.tier_name || item.tier_id || 'บัตรคอนเสิร์ต';
-      const qty = item.quantity || 1;
-      const unitPrice = parseFloat(item.unit_price || (totalAmount / (tickets.length || 1)));
-      const subtotal = qty * unitPrice;
-      return `
-        <tr style="border-bottom: 1px solid #e2e8f0; font-size: 0.9rem;">
-          <td style="padding: 10px 8px; text-align: center;">${idx + 1}</td>
-          <td style="padding: 10px 8px; font-weight: 700; color: #0f172a;">${escapeHtml(tierName)}</td>
-          <td style="padding: 10px 8px; text-align: center;">${qty}</td>
-          <td style="padding: 10px 8px; text-align: right;">฿${unitPrice.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
-          <td style="padding: 10px 8px; text-align: right; font-weight: 700;">฿${subtotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
-        </tr>
-      `;
-    }).join('');
-
-    // สร้างบัตร e-Ticket แต่ละใบ
-    const ticketsHtml = tickets.map((t, idx) => {
-      const qrImgSrc = ticketQrImages[idx];
-      const tierName = t.tier_name || 'บัตรคอนเสิร์ต';
-      return `
-        <div class="ep-pdf-ticket-page" style="border: 2px dashed #0284c7; border-radius: 12px; padding: 18px; margin-top: 24px; background: #f8fafc; text-align: center; page-break-inside: avoid;">
-          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #cbd5e1; padding-bottom: 8px; margin-bottom: 12px;">
-            <div style="text-align: left;">
-              <span style="font-size: 0.8rem; font-weight: 800; color: #0284c7; text-transform: uppercase;">EVENTPAY OFFICIAL E-TICKET PASS</span>
-              <div style="font-size: 1.15rem; font-weight: 900; color: #0f172a;">${escapeHtml(tierName)}</div>
-            </div>
-            <div style="text-align: right;">
-              <span style="background: #0284c7; color: #fff; padding: 4px 10px; border-radius: 6px; font-size: 0.8rem; font-weight: 800;">ใบที่ ${idx + 1} / ${tickets.length}</span>
-              <div style="font-size: 0.82rem; color: #64748b; font-family: monospace; margin-top: 2px;">${t.ticket_id}</div>
-            </div>
-          </div>
-
-          <div style="display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 20px; margin: 14px 0;">
-            <div style="background: #fff; padding: 10px; border-radius: 10px; border: 1.5px solid #0f172a; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
-              ${qrImgSrc ? `<img src="${qrImgSrc}" alt="Ticket QR" style="width: 170px; height: 170px; display: block;">` : `<div style="width:170px;height:170px;display:flex;align-items:center;justify-content:center;font-weight:700;">${t.ticket_id}</div>`}
-              <div style="font-size: 0.72rem; color: #64748b; margin-top: 4px; font-weight: 700;">(แตะค้างที่รูปเพื่อบันทึกภาพ)</div>
-            </div>
-
-            <div style="text-align: left; max-width: 300px; flex: 1; min-width: 200px; font-size: 0.88rem; line-height: 1.7;">
-              <div>👤 <strong>ชื่อผู้ถือบัตร:</strong> <span style="font-size: 0.95rem; font-weight: 800; color: #0f172a;">${escapeHtml(t.attendee_name || order.customer_name || '-')}</span></div>
-              <div>📞 <strong>เบอร์โทรศัพท์:</strong> ${escapeHtml(t.attendee_phone || order.customer_phone || '-')}</div>
-              <div>🎟️ <strong>โซน / ที่นั่ง:</strong> <span style="font-weight: 700; color: #0369a1;">${t.zone || t.tier_name || 'VIP ZONE'}</span> ${t.seat_number ? `(ที่นั่ง ${t.seat_number})` : ''}</div>
-              <div>🏷️ <strong>สถานะริสต์แบนด์:</strong> <span style="color: #059669; font-weight: 700;">${t.wristband_id || 'รอสแกนรับที่หน้าประตู'}</span></div>
-              <div style="font-size: 0.78rem; color: #b45309; background: #fef3c7; padding: 4px 8px; border-radius: 6px; margin-top: 6px; border: 1px solid #fde68a;">
-                ⚠️ <strong>สิทธิ์ 1 ใบ / 1 คน:</strong> ห้ามส่งต่อให้ผู้อื่น สแกน QR Code เพื่อถ่ายรูปและผูกริสต์แบนด์ที่หน้าประตู
-              </div>
-            </div>
-          </div>
-
-          <div style="font-size: 0.78rem; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 8px; margin-top: 8px;">
-            แสดงบัตรคิวอาร์โค้ดนี้ที่ตู้ Kiosk หน้าประตูคอนเสิร์ต | EventPay Security Gate Engine
-          </div>
-        </div>
-      `;
-    }).join('');
-
-    modal.innerHTML = `
-      <!-- Top Sticky Action Bar (Hidden in Print) -->
-      <div class="ep-pdf-no-print" style="max-width: 820px; width: 100%; display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; background: rgba(30, 41, 59, 0.95); padding: 12px 18px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.15); position: sticky; top: 0; z-index: 10; box-shadow: 0 6px 20px rgba(0,0,0,0.4);">
-        <div style="color: #38bdf8; font-weight: 800; font-size: 1.05rem; display: flex; align-items: center; gap: 8px;">
-          <span>📄 เอกสารทางการ PDF & E-Ticket (${order.order_id})</span>
-        </div>
-        <div style="display: flex; gap: 8px;">
-          <button type="button" onclick="if(/Line\//i.test(navigator.userAgent)){ alert('📱 สำหรับ LINE In-App Browser:\nระบบไม่รองรับคำสั่งพิมพ์โดยตรงค่ะ กรุณาแตะค้างที่รูปภาพ QR Code ด้านล่างเพื่อบันทึกภาพลงเครื่อง หรือเปิดลิงก์ผ่าน Chrome/Safari เพื่อบันทึกเป็นไฟล์ PDF ได้ 100% ค่ะ'); } else { window.print(); }" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #fff; font-weight: 800; border: none; padding: 8px 18px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 6px; font-size: 0.92rem; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);">
-            🖨️ บันทึกเป็น PDF / พิมพ์
-          </button>
-          <button type="button" onclick="document.getElementById('epPdfViewerModal').style.display='none'" style="background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #fca5a5; font-weight: 700; padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 0.92rem;">
-            ✕ ปิด
-          </button>
-        </div>
-      </div>
-
-      <!-- Mobile Hint Notice (Hidden in Print) -->
-      <div class="ep-pdf-no-print" style="max-width: 820px; width: 100%; background: linear-gradient(135deg, rgba(2, 132, 199, 0.2) 0%, rgba(3, 105, 161, 0.3) 100%); border: 1.5px solid #0284c7; border-radius: 10px; padding: 12px 16px; margin-bottom: 14px; color: #bae6fd; font-size: 0.88rem; line-height: 1.5; text-align: center;">
-        📱 <strong>สำหรับผู้ใช้บนมือถือ / แท็บเล็ต / ไอโฟน / ไอแพด:</strong><br>
-        สามารถเลื่อนอ่านเอกสารด้านล่างได้ทันที แตะค้างที่รูปภาพ QR Code เพื่อบันทึกลงอัลบั้มรูป หรือกดปุ่ม <strong>"🖨️ บันทึกเป็น PDF / พิมพ์"</strong> ด้านบนเพื่อบันทึกลงในไฟล์ของโทรศัพท์มือถือได้ 100% ค่ะ
-      </div>
-
-      <!-- Printable Paper Sheet -->
-      <div id="epPdfPrintableSheet" style="max-width: 820px; width: 100%; background: #ffffff; color: #0f172a; border-radius: 12px; padding: 28px; box-sizing: border-box; box-shadow: 0 10px 40px rgba(0,0,0,0.6); margin-bottom: 40px; font-family: 'Tahoma', 'Segoe UI', sans-serif;">
-        <!-- Header -->
-        <div style="border-bottom: 2px solid #0f172a; padding-bottom: 14px; margin-bottom: 18px; display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px;">
-          <div>
-            <div style="font-size: 1.45rem; font-weight: 900; color: #0f172a; letter-spacing: 0.5px;">บริษัท ไอซ์ โปรซาวด์ จำกัด</div>
-            <div style="font-size: 0.95rem; font-weight: 800; color: #0284c7; margin-top: 2px;">EVENTPAY CONCERT OFFICIAL 2026</div>
-            <div style="font-size: 0.82rem; color: #64748b; margin-top: 4px;">ระบบจำหน่ายบัตรและบริหารการเงินคอนเสิร์ตมาตรฐานสากล</div>
-          </div>
-          <div style="text-align: right;">
-            <div style="background: #059669; color: #fff; padding: 4px 12px; border-radius: 6px; font-size: 0.85rem; font-weight: 800; display: inline-block;">
-              ✓ ชำระเงินเรียบร้อยแล้ว (PAID)
-            </div>
-            <div style="font-size: 0.85rem; color: #64748b; margin-top: 6px;">วันที่: <strong>${formattedDate}</strong></div>
-            <div style="font-size: 0.95rem; font-weight: 800; color: #0f172a; font-family: monospace;">เลขที่คำสั่งซื้อ: ${order.order_id}</div>
-          </div>
-        </div>
-
-        <!-- Receipt Section Title -->
-        <div style="font-size: 1.15rem; font-weight: 900; color: #0f172a; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
-          <span>🧾 ใบเสร็จรับเงินคอนเสิร์ตทางการ (Official Receipt)</span>
-        </div>
-
-        <!-- Customer & Order Meta -->
-        <div style="background: #f1f5f9; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 0.88rem; line-height: 1.6; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px;">
-          <div>👤 <strong>ชื่อผู้สั่งซื้อ:</strong> ${escapeHtml(order.customer_name || '-')}</div>
-          <div>📞 <strong>เบอร์โทรศัพท์:</strong> ${escapeHtml(order.customer_phone || '-')}</div>
-          <div>💳 <strong>ช่องทางชำระเงิน:</strong> ${escapeHtml(paymentMethodText)}</div>
-          <div>🏦 <strong>รหัสอ้างอิงสลิป:</strong> <span style="font-family: monospace; font-weight: 700;">${escapeHtml(bankRefText)}</span></div>
-          <div>🖥️ <strong>จุดบริการ:</strong> ${escapeHtml(cashierText)}</div>
-          <div>🎟️ <strong>จำนวนบัตรทั้งหมด:</strong> <strong style="color: #0284c7;">${tickets.length} ใบ</strong></div>
-        </div>
-
-        <!-- Items Table -->
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px;">
-          <thead>
-            <tr style="background: #0f172a; color: #fff; font-size: 0.85rem;">
-              <th style="padding: 8px; text-align: center; width: 40px;">#</th>
-              <th style="padding: 8px; text-align: left;">ประเภทบัตร</th>
-              <th style="padding: 8px; text-align: center; width: 70px;">จำนวน</th>
-              <th style="padding: 8px; text-align: right; width: 110px;">ราคา/ใบ</th>
-              <th style="padding: 8px; text-align: right; width: 120px;">รวม (บาท)</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${itemsHtml}
-          </tbody>
-          <tfoot>
-            <tr style="background: #e2e8f0; font-weight: 900; font-size: 1.05rem;">
-              <td colspan="4" style="padding: 10px 8px; text-align: right;">ยอดชำระสุทธิ (Total Amount):</td>
-              <td style="padding: 10px 8px; text-align: right; color: #059669;">฿${totalAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
-            </tr>
-          </tfoot>
-        </table>
-
-        <!-- Tickets Section Title -->
-        <div style="font-size: 1.15rem; font-weight: 900; color: #0f172a; margin-top: 26px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
-          <span>🎟️ บัตรผ่านประตูคอนเสิร์ต e-Ticket Pass (สิทธิ์ 1 ใบ / 1 คน)</span>
-        </div>
-        <div style="font-size: 0.82rem; color: #64748b; margin-bottom: 12px;">
-          โปรดแสดงบัตร QR Code แต่ละใบนี้แก่เจ้าหน้าที่คัดกรอง หรือสแกนที่ตู้ Kiosk หน้าประตูเพื่อถ่ายรูปและรับริสต์แบนด์เข้างาน
-        </div>
-
-        <!-- Render All Tickets -->
-        ${ticketsHtml}
-
-        <!-- Footer Sign-off -->
-        <div style="margin-top: 28px; padding-top: 14px; border-top: 1px solid #cbd5e1; text-align: center; font-size: 0.78rem; color: #64748b; line-height: 1.5;">
-          เอกสารนี้ออกโดยระบบบริหารจัดการคอนเสิร์ตอัตโนมัติ EventPay 2026 | พัฒนาและดูแลระบบโดย เทพอภัย & ลิลิน<br>
-          หากมีข้อสงสัยเกี่ยวกับบัตรเข้างาน กรุณาติดต่อจุดประชาสัมพันธ์หน้างานคอนเสิร์ต
-        </div>
-      </div>
-    `;
-
-    modal.style.display = 'flex';
-    modal.scrollIntoView({ behavior: 'smooth' });
-    } catch (pdfErr) {
-      console.error('[SlipGenerator.openPdfViewer Error]:', pdfErr);
-      if (modal) modal.style.display = 'none';
-      alert('เกิดข้อผิดพลาดในการเปิดเอกสาร PDF ค่ะ: ' + (pdfErr.message || pdfErr));
+    // แสดง Toast ยืนยันบนหน้าจอมือถือ
+    if (isMobile) {
+      SlipGenerator.showDownloadSuccessToast(filename);
     }
   };
 
