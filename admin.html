@@ -2,13 +2,33 @@
 <html lang="th">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <script>
+    // Universal Safe HTML Escape (Global Fallback)
+    window.escapeHtml = function (text) {
+      if (text === null || text === undefined) return '';
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    };
+
+    // [THEP-APAI MISSION 55: LINE IN-APP AUTO-BREAKOUT PROTOCOL]
+    if (typeof navigator !== 'undefined' && /Line\//i.test(navigator.userAgent)) {
+      if (typeof window !== 'undefined' && window.location && !window.location.search.includes('openExternalBrowser=1')) {
+        const sep = window.location.href.includes('?') ? '&' : '?';
+        window.location.replace(window.location.href + sep + 'openExternalBrowser=1');
+      }
+    }
+  </script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#080d1a">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>EventPay Admin - ศูนย์บัญชาการและตรวจสอบการเงินความปลอดภัยคอนเสิร์ต</title>
-  <link rel="stylesheet" href="css/styles.css?v=52.0">
+  <link rel="stylesheet" href="css/styles.css?v=54.2">
   <script>
     // Auto-Bridge: หากเปิดจาก Explorer (file:///) และ Master Server (Port 8080) ทำงานอยู่ ให้บริดจ์อัตโนมัติ
     (function() {
@@ -27,6 +47,29 @@
   </script>
 </head>
 <body class="ep-admin-body">
+
+  <!-- LINE IN-APP SMART BRIDGE BANNER (MISSION 55) -->
+  <div id="lineInAppAlertBanner" style="display: none; background: #06c755; color: #ffffff; padding: 10px 14px; font-size: 0.88rem; font-weight: 700; text-align: center; box-shadow: 0 4px 12px rgba(6, 199, 85, 0.3); z-index: 99999; position: relative;">
+    <span>📱 กำลังเปิดใน LINE: เพื่อการทำงานที่สมบูรณ์ 100% </span>
+    <a id="lineExternalBrowserLink" href="#" target="_blank" style="color: #ffffff; text-decoration: underline; background: rgba(0,0,0,0.2); padding: 3px 10px; border-radius: 4px; margin-left: 6px; display: inline-block;">
+      🌐 แตะเปิดใน Chrome / Safari
+    </a>
+  </div>
+  <script>
+    (function() {
+      if (typeof navigator !== 'undefined' && /Line\//i.test(navigator.userAgent)) {
+        const banner = document.getElementById('lineInAppAlertBanner');
+        const link = document.getElementById('lineExternalBrowserLink');
+        if (banner && link) {
+          banner.style.display = 'block';
+          const sep = window.location.href.includes('?') ? '&' : '?';
+          link.href = window.location.href.includes('openExternalBrowser=1') 
+            ? window.location.href 
+            : window.location.href + sep + 'openExternalBrowser=1';
+        }
+      }
+    })();
+  </script>
 
   <!-- ADMIN HEADER -->
   <header class="ep-admin-header">
@@ -1208,13 +1251,13 @@
   </div>
 
   <!-- CORE SCRIPTS (CACHE-BUSTING v49.0) -->
-  <script src="js/qrcode.min.js?v=52.0"></script>
-  <script src="js/audioAlertEngine.js?v=52.0"></script>
-  <script src="js/hardwareBridge.js?v=52.0"></script>
-  <script src="js/db.js?v=52.0"></script>
-  <script src="js/firebaseAdapter.js?v=52.0"></script>
-  <script src="js/authGuard.js?v=52.0"></script>
-  <script src="js/admin.js?v=52.0"></script>
+  <script src="js/qrcode.min.js?v=54.2"></script>
+  <script src="js/audioAlertEngine.js?v=54.2"></script>
+  <script src="js/hardwareBridge.js?v=54.2"></script>
+  <script src="js/db.js?v=54.2"></script>
+  <script src="js/firebaseAdapter.js?v=54.2"></script>
+  <script src="js/authGuard.js?v=54.2"></script>
+  <script src="js/admin.js?v=54.2"></script>
   <script>
     document.addEventListener('DOMContentLoaded', () => {
       if (typeof EventPayAuth !== 'undefined') {

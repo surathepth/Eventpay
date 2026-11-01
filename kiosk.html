@@ -1,8 +1,28 @@
 <!DOCTYPE html>
 <html lang="th">
 <head>
+  <script>
+    // Universal Safe HTML Escape (Global Fallback)
+    window.escapeHtml = function (text) {
+      if (text === null || text === undefined) return '';
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    };
+
+    // [THEP-APAI MISSION 55: LINE IN-APP AUTO-BREAKOUT PROTOCOL]
+    if (typeof navigator !== 'undefined' && /Line\//i.test(navigator.userAgent)) {
+      if (typeof window !== 'undefined' && window.location && !window.location.search.includes('openExternalBrowser=1')) {
+        const sep = window.location.href.includes('?') ? '&' : '?';
+        window.location.replace(window.location.href + sep + 'openExternalBrowser=1');
+      }
+    }
+  </script>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#030712">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -10,8 +30,65 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>EventPay Kiosk Gate - ประตูตรวจสิทธิ์ 3 ประสาน งานคอนเสิร์ต</title>
-  <link rel="stylesheet" href="css/styles.css?v=20261024_0100">
+  <link rel="stylesheet" href="css/styles.css?v=54.2">
   <style>
+    /* [THEP-APAI MISSION 55: MOBILE & ANDROID KIOSK RESPONSIVE ENHANCEMENT] */
+    html, body {
+      max-width: 100vw;
+      overflow-x: hidden;
+    }
+    .ep-kiosk-body {
+      width: 100vw;
+      max-width: 100vw;
+      overflow-x: hidden;
+      box-sizing: border-box;
+    }
+    .ep-kiosk-header {
+      box-sizing: border-box;
+      width: 100%;
+      max-width: 100vw;
+    }
+    .ep-kiosk-grid {
+      box-sizing: border-box;
+      width: 100%;
+      max-width: 100vw;
+      overflow-x: hidden;
+    }
+    @media (max-width: 768px) {
+      .ep-kiosk-header {
+        padding: 8px 10px !important;
+        gap: 6px !important;
+      }
+      .ep-kiosk-header .ep-brand img {
+        width: 36px !important;
+        height: 36px !important;
+      }
+      .ep-kiosk-header .ep-brand h1 {
+        font-size: 1.05rem !important;
+      }
+      .ep-kiosk-grid {
+        padding: 0 8px !important;
+        margin: 8px auto !important;
+        gap: 10px !important;
+      }
+      .ep-stat-grid-4 {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 6px !important;
+      }
+      .ep-stat-box {
+        padding: 6px !important;
+      }
+      .ep-stat-box .ep-stat-num {
+        font-size: 1.15rem !important;
+      }
+      .ep-btn-submit {
+        padding: 12px 8px !important;
+        font-size: 1.05rem !important;
+      }
+      .ep-input {
+        font-size: 1.05rem !important;
+      }
+    }
     .ep-outside-card {
       background: #0f172a;
       border: 1px solid #1e293b;
@@ -55,6 +132,29 @@
   </script>
 </head>
 <body class="ep-kiosk-body">
+
+  <!-- LINE IN-APP SMART BRIDGE BANNER (MISSION 55) -->
+  <div id="lineInAppAlertBanner" style="display: none; background: #06c755; color: #ffffff; padding: 10px 14px; font-size: 0.88rem; font-weight: 700; text-align: center; box-shadow: 0 4px 12px rgba(6, 199, 85, 0.3); z-index: 99999; position: relative;">
+    <span>📱 กำลังเปิดใน LINE: เพื่อการทำงานที่สมบูรณ์ 100% </span>
+    <a id="lineExternalBrowserLink" href="#" target="_blank" style="color: #ffffff; text-decoration: underline; background: rgba(0,0,0,0.2); padding: 3px 10px; border-radius: 4px; margin-left: 6px; display: inline-block;">
+      🌐 แตะเปิดใน Chrome / Safari
+    </a>
+  </div>
+  <script>
+    (function() {
+      if (typeof navigator !== 'undefined' && /Line\//i.test(navigator.userAgent)) {
+        const banner = document.getElementById('lineInAppAlertBanner');
+        const link = document.getElementById('lineExternalBrowserLink');
+        if (banner && link) {
+          banner.style.display = 'block';
+          const sep = window.location.href.includes('?') ? '&' : '?';
+          link.href = window.location.href.includes('openExternalBrowser=1') 
+            ? window.location.href 
+            : window.location.href + sep + 'openExternalBrowser=1';
+        }
+      }
+    })();
+  </script>
 
   <!-- KIOSK HEADER -->
   <header class="ep-kiosk-header">
@@ -278,22 +378,22 @@
 
       <!-- GATE RUNNING STATS -->
       <div class="ep-card" style="padding: 16px;">
-        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; text-align: center;">
-          <div style="background: #0d1527; padding: 8px; border-radius: 8px;">
+        <div class="ep-stat-grid-4" style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; text-align: center;">
+          <div class="ep-stat-box" style="background: #0d1527; padding: 8px; border-radius: 8px;">
             <div style="font-size: 0.72rem; color: var(--text-muted);">อยู่ในงานขณะนี้</div>
-            <div style="font-size: 1.4rem; font-weight: 800; color: var(--accent-green);" id="statEnteredCount">0 คน</div>
+            <div class="ep-stat-num" style="font-size: 1.4rem; font-weight: 800; color: var(--accent-green);" id="statEnteredCount">0 คน</div>
           </div>
-          <div style="background: #0d1527; padding: 8px; border-radius: 8px;">
+          <div class="ep-stat-box" style="background: #0d1527; padding: 8px; border-radius: 8px;">
             <div style="font-size: 0.72rem; color: var(--text-muted);">ออกชั่วคราว</div>
-            <div style="font-size: 1.4rem; font-weight: 800; color: #38bdf8;" id="statExitedCount">0 คน</div>
+            <div class="ep-stat-num" style="font-size: 1.4rem; font-weight: 800; color: #38bdf8;" id="statExitedCount">0 คน</div>
           </div>
-          <div style="background: #0d1527; padding: 8px; border-radius: 8px;">
+          <div class="ep-stat-box" style="background: #0d1527; padding: 8px; border-radius: 8px;">
             <div style="font-size: 0.72rem; color: var(--text-muted);">ตรวจจับเหตุผิดปกติ</div>
-            <div style="font-size: 1.4rem; font-weight: 800; color: var(--accent-red);" id="statIncidentCount">0 ครั้ง</div>
+            <div class="ep-stat-num" style="font-size: 1.4rem; font-weight: 800; color: var(--accent-red);" id="statIncidentCount">0 ครั้ง</div>
           </div>
-          <div style="background: #0d1527; padding: 8px; border-radius: 8px;">
+          <div class="ep-stat-box" style="background: #0d1527; padding: 8px; border-radius: 8px;">
             <div style="font-size: 0.72rem; color: var(--text-muted);">คงเหลือรอเข้า</div>
-            <div style="font-size: 1.4rem; font-weight: 800; color: var(--accent-cyan);" id="statRemainingCount">0 คน</div>
+            <div class="ep-stat-num" style="font-size: 1.4rem; font-weight: 800; color: var(--accent-cyan);" id="statRemainingCount">0 คน</div>
           </div>
         </div>
       </div>
@@ -440,15 +540,15 @@
   </div>
 
   <!-- CORE SCRIPTS (CACHE-BUSTING v49.0) -->
-  <script src="js/jsQR.min.js?v=52.0"></script>
-  <script src="js/zxing.min.js?v=52.0"></script>
-  <script src="js/qrcode.min.js?v=52.0"></script>
-  <script src="js/audioAlertEngine.js?v=52.0"></script>
-  <script src="js/hardwareBridge.js?v=52.0"></script>
-  <script src="js/db.js?v=52.0"></script>
-  <script src="js/firebaseAdapter.js?v=52.0"></script>
-  <script src="js/authGuard.js?v=52.0"></script>
-  <script src="js/gate.js?v=52.0"></script>
+  <script src="js/jsQR.min.js?v=54.2"></script>
+  <script src="js/zxing.min.js?v=54.2"></script>
+  <script src="js/qrcode.min.js?v=54.2"></script>
+  <script src="js/audioAlertEngine.js?v=54.2"></script>
+  <script src="js/hardwareBridge.js?v=54.2"></script>
+  <script src="js/db.js?v=54.2"></script>
+  <script src="js/firebaseAdapter.js?v=54.2"></script>
+  <script src="js/authGuard.js?v=54.2"></script>
+  <script src="js/gate.js?v=54.2"></script>
   <script>
     function initDropdowns() {
       document.addEventListener('click', (e) => {

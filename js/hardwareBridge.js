@@ -75,19 +75,57 @@
       // หยุดกล้องเดิมก่อนเปิดกล้องใหม่เพื่อป้องกัน Memory Leak
       this.stopCamera(videoElement);
 
-      const constraints = {
-        audio: false, // บล็อกไมโครโฟน เพื่อความเป็นส่วนตัวและความเร็วสูงสุด
+      // [THEP-APAI MISSION 55: RESILIENT 3-TIER CAMERA CONSTRAINTS FOR ANDROID & MOBILE KIOSK]
+      let stream = null;
+      let lastError = null;
+
+      // Tier 1: Ideal HD / Flexible without rigid 'min' that causes OverconstrainedError on Android
+      const tier1Constraints = {
+        audio: false,
         video: preferredDeviceId
           ? { deviceId: { exact: preferredDeviceId } }
           : {
               facingMode: { ideal: facingMode },
-              width: { ideal: 1280, min: 640 },
-              height: { ideal: 720, min: 480 }
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
             }
       };
 
+      // Tier 2: Flexible Facing Mode (user/environment)
+      const tier2Constraints = {
+        audio: false,
+        video: preferredDeviceId
+          ? { deviceId: { exact: preferredDeviceId } }
+          : { facingMode: facingMode }
+      };
+
+      // Tier 3: Universal Fallback (video: true)
+      const tier3Constraints = {
+        audio: false,
+        video: true
+      };
+
       try {
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        stream = await navigator.mediaDevices.getUserMedia(tier1Constraints);
+      } catch (err1) {
+        console.warn('[EventPay Hardware] Tier 1 camera constraints failed, trying Tier 2:', err1);
+        lastError = err1;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(tier2Constraints);
+        } catch (err2) {
+          console.warn('[EventPay Hardware] Tier 2 camera constraints failed, trying Tier 3 universal:', err2);
+          lastError = err2;
+          try {
+            stream = await navigator.mediaDevices.getUserMedia(tier3Constraints);
+          } catch (err3) {
+            console.error('[EventPay Hardware] All camera tiers failed:', err3);
+            lastError = err3;
+            throw lastError;
+          }
+        }
+      }
+
+      try {
         this.currentStream = stream;
 
         const videoTrack = stream.getVideoTracks()[0];
@@ -97,15 +135,26 @@
         }
 
         if (videoElement) {
-          videoElement.srcObject = stream;
-          videoElement.setAttribute('playsinline', 'true'); // บังคับไม่ให้เด้งเต็มจอใน iOS
           videoElement.muted = true;
-          await videoElement.play().catch(e => console.warn('[EventPay Hardware] Video play warning:', e));
+          videoElement.defaultMuted = true;
+          videoElement.setAttribute('playsinline', 'true');
+          videoElement.setAttribute('webkit-playsinline', 'true');
+          videoElement.srcObject = stream;
+
+          const playPromise = videoElement.play();
+          if (playPromise !== undefined) {
+            playPromise.catch(e => {
+              console.warn('[EventPay Hardware] Direct play warning, waiting loadedmetadata:', e);
+              videoElement.onloadedmetadata = () => {
+                videoElement.play().catch(err => console.warn('[EventPay Hardware] Metadata play warning:', err));
+              };
+            });
+          }
         }
 
         return stream;
       } catch (err) {
-        console.error('[EventPay Hardware] Failed to start camera stream:', err);
+        console.error('[EventPay Hardware] Failed to configure camera stream:', err);
         throw err;
       }
     }
