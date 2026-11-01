@@ -23,6 +23,14 @@
     };
   }
 
+  // [THEP-APAI MISSION 54.2: LINE IN-APP AUTO-BREAKOUT PROTOCOL]
+  if (typeof navigator !== 'undefined' && /Line\//i.test(navigator.userAgent)) {
+    if (typeof window !== 'undefined' && window.location && !window.location.search.includes('openExternalBrowser=1')) {
+      const sep = window.location.href.includes('?') ? '&' : '?';
+      window.location.replace(window.location.href + sep + 'openExternalBrowser=1');
+    }
+  }
+
   let bookingQuantities = {};
   let audioAlert = null;
   let qrcodeInstance = null;
@@ -1084,15 +1092,32 @@
         allTiers.forEach(t => {
           const q = bookingQuantities[t.tier_id] || 0;
           if (q > 0) {
+            const uPrice = parseFloat(t.price || 0);
             items.push({
               tier_id: t.tier_id,
+              tier_name: t.name || 'บัตรคอนเสิร์ต',
+              unit_price: uPrice,
+              unitPrice: uPrice,
               quantity: q,
+              subtotal: uPrice * q,
+              lineTotal: uPrice * q,
               attendee_names: [custName]
             });
           }
         });
         if (items.length === 0 && allTiers.length > 0) {
-          items.push({ tier_id: allTiers[0].tier_id, quantity: 1, attendee_names: [custName] });
+          const t0 = allTiers[0];
+          const uPrice = parseFloat(t0.price || 0);
+          items.push({
+            tier_id: t0.tier_id,
+            tier_name: t0.name || 'บัตรคอนเสิร์ต',
+            unit_price: uPrice,
+            unitPrice: uPrice,
+            quantity: 1,
+            subtotal: uPrice,
+            lineTotal: uPrice,
+            attendee_names: [custName]
+          });
         }
 
         const newOrderId = 'ORD-' + Date.now();
@@ -1503,9 +1528,15 @@
         if (names.length === 0) names.push(custName);
         while (names.length < qty) names.push(custName);
 
+        const uPrice = parseFloat(tier.price || 0);
         items.push({
           tier_id: tier.tier_id,
+          tier_name: tier.name || 'บัตรคอนเสิร์ต',
+          unit_price: uPrice,
+          unitPrice: uPrice,
           quantity: qty,
+          subtotal: uPrice * qty,
+          lineTotal: uPrice * qty,
           attendee_names: names
         });
       }
@@ -1832,13 +1863,15 @@
       resolvedItems.forEach(item => {
         const tr = document.createElement('tr');
         tr.style.borderBottom = '1px dashed #e2e8f0';
+        const unitP = parseFloat(item.unitPrice ?? item.unit_price ?? 0);
+        const lineP = parseFloat(item.lineTotal ?? item.subtotal ?? (unitP * (item.quantity || 1)));
         tr.innerHTML = `
           <td style="text-align: left; padding: 8px 6px;">
-            <strong style="color: #0f172a; font-size: 0.88rem;">${escapeHtml(item.name)}</strong>
-            <div style="font-size: 0.74rem; color: #64748b;">@฿${(item.unitPrice || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</div>
+            <strong style="color: #0f172a; font-size: 0.88rem;">${escapeHtml(item.name || item.tier_name || 'บัตรคอนเสิร์ต')}</strong>
+            <div style="font-size: 0.74rem; color: #64748b;">@฿${unitP.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</div>
           </td>
           <td style="text-align: center; font-weight: 700; padding: 8px 4px; font-size: 0.88rem;">${item.quantity} ใบ</td>
-          <td style="text-align: right; font-weight: 800; padding: 8px 6px; font-size: 0.92rem; color: #0284c7;">฿${(item.lineTotal || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
+          <td style="text-align: right; font-weight: 800; padding: 8px 6px; font-size: 0.92rem; color: #0284c7;">฿${lineP.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
         `;
         rcpItemsTableBody.appendChild(tr);
       });
@@ -2037,10 +2070,14 @@
     const filename = `EventPay_QR_${ticketId}.png`;
 
     if (src) {
-      if (typeof SlipGenerator !== 'undefined' && typeof SlipGenerator.triggerDirectDownload === 'function') {
-        SlipGenerator.triggerDirectDownload(src, filename);
-        if (typeof SlipGenerator.showDownloadSuccessToast === 'function') {
-          SlipGenerator.showDownloadSuccessToast(filename);
+      if (typeof SlipGenerator !== 'undefined') {
+        if (typeof navigator !== 'undefined' && /Line\//i.test(navigator.userAgent) && typeof SlipGenerator.showLineDownloadBridge === 'function') {
+          SlipGenerator.showLineDownloadBridge(src, filename);
+        } else if (typeof SlipGenerator.triggerDirectDownload === 'function') {
+          SlipGenerator.triggerDirectDownload(src, filename);
+          if (typeof SlipGenerator.showDownloadSuccessToast === 'function') {
+            SlipGenerator.showDownloadSuccessToast(filename);
+          }
         }
       } else {
         const a = document.createElement('a');

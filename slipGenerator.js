@@ -37,16 +37,39 @@
   }
 
 
-  // Helper: Self-Healing Receipt Items Fallback (Thep-Apai Mission 53)
+  // Helper: Self-Healing Receipt Items Fallback (Thep-Apai Mission 54.2)
   function getResolvedReceiptItems(order, tickets) {
     let items = [];
+    const allTiers = (typeof EventPayDB !== 'undefined' && EventPayDB.getAll) ? EventPayDB.getAll('ticket_tiers') : [];
+    const totalAmount = parseFloat((order && order.total_amount) || 0);
+
     if (order && Array.isArray(order.items) && order.items.length > 0) {
-      items = order.items.map(it => ({
-        name: it.tier_name || it.name || it.tier_id || 'บัตรคอนเสิร์ต',
-        quantity: parseInt(it.quantity || 1, 10),
-        unit_price: parseFloat(it.unit_price || 0),
-        subtotal: parseFloat(it.subtotal || (it.quantity * it.unit_price) || 0)
-      }));
+      let totalQty = 0;
+      order.items.forEach(it => { totalQty += parseInt(it.quantity || 1, 10); });
+      if (totalQty === 0) totalQty = 1;
+
+      items = order.items.map(it => {
+        const qty = parseInt(it.quantity || 1, 10);
+        const tierObj = allTiers.find(x => x.tier_id === it.tier_id || x.name === it.tier_name || x.name === it.name);
+        let uPrice = parseFloat(it.unit_price || it.unitPrice || (tierObj ? tierObj.price : 0) || 0);
+        if (uPrice <= 0 && totalAmount > 0) {
+          uPrice = totalAmount / totalQty;
+        }
+        let lineTot = parseFloat(it.subtotal || it.lineTotal || (qty * uPrice) || 0);
+        if (lineTot <= 0 && totalAmount > 0 && order.items.length === 1) {
+          lineTot = totalAmount;
+        }
+        const displayName = (tierObj && tierObj.name) ? tierObj.name : (it.tier_name || it.name || it.tier_id || 'บัตรคอนเสิร์ต');
+        return {
+          name: displayName,
+          tier_id: it.tier_id || (tierObj ? tierObj.tier_id : 'TIER-GENERAL'),
+          quantity: qty,
+          unit_price: uPrice,
+          unitPrice: uPrice,
+          subtotal: lineTot,
+          lineTotal: lineTot
+        };
+      });
     } else if (tickets && tickets.length > 0) {
       const summary = {};
       tickets.forEach(t => {
@@ -56,34 +79,36 @@
         }
         summary[name].quantity++;
       });
-      const allTiers = (typeof EventPayDB !== 'undefined' && EventPayDB.getAll) ? EventPayDB.getAll('ticket_tiers') : [];
-      const totalAmount = parseFloat((order && order.total_amount) || 0);
       Object.keys(summary).forEach(k => {
         const s = summary[k];
         const tierObj = allTiers.find(x => x.tier_id === s.tier_id || x.name === s.name);
         s.unit_price = tierObj ? parseFloat(tierObj.price || 0) : (totalAmount && tickets.length > 0 ? (totalAmount / tickets.length) : 0);
+        s.unitPrice = s.unit_price;
         s.subtotal = s.quantity * s.unit_price;
+        s.lineTotal = s.subtotal;
         items.push(s);
       });
     } else if (order && order.tier_id) {
-      const allTiers = (typeof EventPayDB !== 'undefined' && EventPayDB.getAll) ? EventPayDB.getAll('ticket_tiers') : [];
       const tierObj = allTiers.find(x => x.tier_id === order.tier_id);
-      const totalAmount = parseFloat(order.total_amount || 0);
       const qty = parseInt(order.ticket_count || order.quantity || 1, 10);
       const unitPrice = tierObj ? parseFloat(tierObj.price || 0) : (qty > 0 ? (totalAmount / qty) : totalAmount);
       items.push({
         name: tierObj ? tierObj.name : (order.tier_name || 'บัตรคอนเสิร์ต'),
+        tier_id: order.tier_id,
         quantity: qty,
         unit_price: unitPrice,
-        subtotal: totalAmount || (qty * unitPrice)
+        unitPrice: unitPrice,
+        subtotal: totalAmount || (qty * unitPrice),
+        lineTotal: totalAmount || (qty * unitPrice)
       });
-    } else if (order && order.total_amount) {
-      const totalAmount = parseFloat(order.total_amount || 0);
+    } else if (order && totalAmount > 0) {
       items.push({
-        name: order.tier_name || 'บัตรคอนเสิร์ต',
+        name: order.tier_name || 'บัตรคอนเสิร์ต (e-Ticket)',
         quantity: 1,
         unit_price: totalAmount,
-        subtotal: totalAmount
+        unitPrice: totalAmount,
+        subtotal: totalAmount,
+        lineTotal: totalAmount
       });
     }
     return items;
@@ -243,18 +268,11 @@
       const scale = 2; // Retina 2x
       const width = 750;
 
-      // รวมกลุ่มรายการบัตร
-      const summaryByTier = {};
-      tickets.forEach(t => {
-        if (!summaryByTier[t.tier_name]) {
-          summaryByTier[t.tier_name] = { qty: 0, tier_id: t.tier_id };
-        }
-        summaryByTier[t.tier_name].qty++;
-      });
-      const tierNames = Object.keys(summaryByTier);
+      // รวมกลุ่มรายการบัตรด้วย getResolvedReceiptItems มาตรฐานเดียวกับหน้าจอ
+      const receiptItems = getResolvedReceiptItems(order, tickets);
 
       // คำนวณความสูงโดยประมาณ
-      let estimatedHeight = 780 + (tierNames.length * 36);
+      let estimatedHeight = 780 + (receiptItems.length * 36);
       if (order.customer_phone) estimatedHeight += 26;
 
       const canvas = document.createElement('canvas');
@@ -354,24 +372,21 @@
       ctx.lineTo(width - 36, curY);
       ctx.stroke();
 
-      tierNames.forEach(name => {
+      receiptItems.forEach(item => {
         curY += 28;
-        const item = summaryByTier[name];
-        const tierObj = typeof EventPayDB !== 'undefined' ? EventPayDB.get('ticket_tiers', item.tier_id) : null;
-        const price = tierObj ? tierObj.price : 0;
-        const subtotal = price * item.qty;
+        const lineTotal = item.subtotal || item.lineTotal || 0;
 
         ctx.fillStyle = '#1e293b';
         ctx.font = '16px "Tahoma", "Segoe UI", sans-serif';
         ctx.textAlign = 'left';
-        ctx.fillText(name, 42, curY);
+        ctx.fillText(item.name || 'บัตรคอนเสิร์ต', 42, curY);
 
         ctx.textAlign = 'center';
-        ctx.fillText(`${item.qty} ใบ`, width / 2 + 60, curY);
+        ctx.fillText(`${item.quantity} ใบ`, width / 2 + 60, curY);
 
         ctx.textAlign = 'right';
         ctx.font = 'bold 16px "Tahoma", "Segoe UI", sans-serif';
-        ctx.fillText(`฿${Math.round(subtotal).toLocaleString('th-TH')}`, width - 42, curY);
+        ctx.fillText(`฿${Math.round(lineTotal).toLocaleString('th-TH')}`, width - 42, curY);
       });
 
       curY += 16;
@@ -700,19 +715,117 @@
     }, 3500);
   };
 
+  // [THEP-APAI MISSION 54.2: LINE IN-APP SMART BRIDGE]
+  SlipGenerator.showLineDownloadBridge = function (dataUrl, filename) {
+    if (typeof document === 'undefined') return;
+    filename = filename || 'EventPay_Slip.png';
+
+    let bridgeModal = document.getElementById('epLineDownloadBridgeModal');
+    if (!bridgeModal) {
+      bridgeModal = document.createElement('div');
+      bridgeModal.id = 'epLineDownloadBridgeModal';
+      bridgeModal.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+        background: rgba(15, 23, 42, 0.95); z-index: 999999999;
+        display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+        padding: 14px; box-sizing: border-box; overflow-y: auto; backdrop-filter: blur(10px);
+        -webkit-overflow-scrolling: touch;
+      `;
+      document.body.appendChild(bridgeModal);
+    }
+
+    const currentUrl = (typeof window !== 'undefined' && window.location) ? window.location.href : '';
+    const sep = currentUrl.includes('?') ? '&' : '?';
+    const externalBrowserUrl = currentUrl.includes('openExternalBrowser=1') ? currentUrl : (currentUrl + sep + 'openExternalBrowser=1');
+    const isAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
+    const host = (typeof window !== 'undefined' && window.location) ? window.location.host : '';
+    const pathname = (typeof window !== 'undefined' && window.location) ? window.location.pathname : '';
+    const search = (typeof window !== 'undefined' && window.location) ? window.location.search : '';
+    const searchParam = search ? (search.includes('openExternalBrowser=1') ? search : search + '&openExternalBrowser=1') : '?openExternalBrowser=1';
+    const androidChromeIntent = `intent://${host}${pathname}${searchParam}#Intent;scheme=https;package=com.android.chrome;end`;
+
+    bridgeModal.innerHTML = `
+      <div style="max-width: 480px; width: 100%; display: flex; flex-direction: column; align-items: center; margin: 8px auto 24px auto;">
+        
+        <!-- Header Bar -->
+        <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding: 0 4px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 1.4rem;">📱</span>
+            <div>
+              <div style="color: #38bdf8; font-weight: 800; font-size: 0.98rem;">LINE In-App Browser Mode</div>
+              <div style="color: #94a3b8; font-size: 0.76rem;">ระบบเซฟรูปภาพลงอัลบั้มโทรศัพท์มือถือ</div>
+            </div>
+          </div>
+          <button type="button" onclick="document.getElementById('epLineDownloadBridgeModal').style.display='none'" 
+            style="background: #ef4444; border: none; color: #fff; padding: 7px 14px; border-radius: 8px; font-weight: 800; font-size: 0.88rem; cursor: pointer; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);">
+            ✕ ปิด
+          </button>
+        </div>
+
+        <!-- 1-Tap Breakout Button to Open in External Browser -->
+        <a href="${isAndroid ? androidChromeIntent : externalBrowserUrl}" target="_blank" rel="noopener noreferrer"
+          style="width: 100%; box-sizing: border-box; text-decoration: none; margin-bottom: 12px; background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #ffffff; padding: 13px 16px; border-radius: 10px; font-weight: 800; font-size: 0.96rem; text-align: center; box-shadow: 0 4px 16px rgba(2, 132, 199, 0.4); display: flex; align-items: center; justify-content: center; gap: 8px; border: 1.5px solid #38bdf8;">
+          <span>🌐</span> <span>เปิดใน ${isAndroid ? 'Chrome' : 'Safari'} เพื่อโหลดอัตโนมัติ</span>
+        </a>
+
+        <!-- Guidance Banner for Touch & Hold -->
+        <div style="width: 100%; box-sizing: border-box; background: rgba(30, 41, 59, 0.92); border: 1.5px solid #ffb703; border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; text-align: left; color: #f8fafc;">
+          <div style="font-weight: 800; color: #ffb703; font-size: 0.92rem; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+            <span>📸</span> <span>วิธีบันทึกภาพลงเครื่องใน LINE ทันที:</span>
+          </div>
+          <div style="font-size: 0.82rem; line-height: 1.45; color: #cbd5e1;">
+            <strong>แตะที่รูปภาพด้านล่างค้างไว้ 1-2 วินาที</strong> แล้วกด <em>"บันทึกรูปภาพ"</em> หรือ <em>"Save Image"</em> รูปภาพจะถูกบันทึกลงอัลบั้มมือถือทันทีค่ะ
+          </div>
+        </div>
+
+        <!-- High-Res Image Display Container -->
+        <div style="width: 100%; background: #000; border-radius: 12px; padding: 6px; box-sizing: border-box; border: 2px solid #38bdf8; box-shadow: 0 8px 30px rgba(0,0,0,0.8); text-align: center; margin-bottom: 12px;">
+          <img src="${dataUrl}" alt="${filename}" 
+            style="width: 100%; height: auto; max-width: 100%; border-radius: 8px; display: block; margin: 0 auto; -webkit-touch-callout: default !important; user-select: auto !important; cursor: pointer;" 
+            title="แตะค้างที่นี่เพื่อบันทึกรูปภาพ" />
+        </div>
+
+        <!-- Bottom Action Bar -->
+        <div style="width: 100%; display: flex; gap: 10px;">
+          <button type="button" onclick="SlipGenerator.triggerDirectDownload('${dataUrl}', '${filename}');" 
+            style="flex: 1; background: #334155; border: 1px solid #475569; color: #cbd5e1; padding: 10px; border-radius: 8px; font-weight: 700; font-size: 0.85rem; cursor: pointer;">
+            📥 ลองดาวน์โหลดตรงอีกครั้ง
+          </button>
+          <button type="button" onclick="document.getElementById('epLineDownloadBridgeModal').style.display='none'" 
+            style="flex: 1; background: #ef4444; border: none; color: #fff; padding: 10px; border-radius: 8px; font-weight: 700; font-size: 0.85rem; cursor: pointer;">
+            ✕ ปิดหน้าต่างนี้
+          </button>
+        </div>
+
+      </div>
+    `;
+
+    bridgeModal.style.display = 'flex';
+    bridgeModal.scrollTop = 0;
+  };
+
   SlipGenerator.downloadCanvasAsImage = function (canvas, filename) {
     if (!canvas) return;
 
     filename = filename || 'EventPay_Ticket.png';
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768;
+    const isMobile = (typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) || (typeof window !== 'undefined' && window.innerWidth <= 768);
+    const isLineInApp = typeof navigator !== 'undefined' && /Line\//i.test(navigator.userAgent);
     const dataUrl = canvas.toDataURL('image/png', 1.0);
 
     window._lastGeneratedCanvas = canvas;
     window._lastGeneratedDataUrl = dataUrl;
     window._lastGeneratedFilename = filename;
 
-    // [THEP-APAI MISSION 54: DIRECT MOBILE & DESKTOP PNG DOWNLOAD 100%]:
-    // ส่งคำสั่งดาวน์โหลดไฟล์ภาพ PNG ลงเครื่องโทรศัพท์มือถือ / คอมพิวเตอร์โดยตรงทันที ไม่ดักตัดด้วย return
+    // [THEP-APAI MISSION 54.2: LINE IN-APP BROWSER SMART BRIDGE]
+    // ถ้าอยู่บน LINE In-App Browser ซึ่งบล็อกการคลิกแท็ก <a> อัตโนมัติและขึ้นแถบดำ Error
+    // ให้เปิด LINE Smart Bridge เพื่อให้ผู้ใช้แตะค้างบันทึกรูปภาพ หรือกดเปิดใน Chrome/Safari ได้ใน 1 วินาที
+    if (isLineInApp) {
+      SlipGenerator.showLineDownloadBridge(dataUrl, filename);
+      return;
+    }
+
+    // [THEP-APAI MISSION 54.2: DIRECT MOBILE & DESKTOP PNG DOWNLOAD 100%]:
+    // ส่งคำสั่งดาวน์โหลดไฟล์ภาพ PNG ลงเครื่องโทรศัพท์มือถือ / คอมพิวเตอร์โดยตรงทันที สำหรับเบราว์เซอร์มาตรฐาน
     if (canvas.toBlob) {
       canvas.toBlob(blob => {
         if (blob) {
