@@ -144,8 +144,8 @@
     const tiers = EventPayDB.getAll('ticket_tiers');
     tiers.forEach((tier, index) => {
       if (tierQuantities[tier.tier_id] === undefined) {
-        // ค่าเริ่มต้น: เลือก VIP 1 ใบให้ผู้ใช้เห็นทันที
-        tierQuantities[tier.tier_id] = index === 0 ? 1 : 0;
+        // [THEP-APAI MISSION 56]: ทุกหน่วยจำนวนของหน้าขายให้มียอด 0 เท่านั้น
+        tierQuantities[tier.tier_id] = 0;
       }
 
       const isSelected = tierQuantities[tier.tier_id] > 0;
@@ -160,10 +160,24 @@
         </div>
         <div style="display: flex; align-items: center; gap: 16px;">
           <div class="ep-tier-price">฿${tier.price.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</div>
-          <div class="ep-qty-control">
-            <button type="button" class="ep-qty-btn" onclick="updateTierQty('${tier.tier_id}', -1)">-</button>
-            <span class="ep-qty-val" id="qty_${tier.tier_id}">${tierQuantities[tier.tier_id]}</span>
-            <button type="button" class="ep-qty-btn" onclick="updateTierQty('${tier.tier_id}', 1)">+</button>
+          <div class="ep-qty-control" style="background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 24px; padding: 4px 6px; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 2px 6px rgba(2, 132, 199, 0.08);">
+            <button type="button" class="ep-qty-btn" onclick="updateTierQty('${tier.tier_id}', -1)" aria-label="ลด" style="width: 32px; height: 32px; border-radius: 50%; border: 1.5px solid #cbd5e1; background: #f8fafc; color: #0f172a; font-size: 1.2rem; font-weight: 900; display: flex; align-items: center; justify-content: center; cursor: pointer;">-</button>
+            <input type="number"
+                   id="qty_${tier.tier_id}"
+                   class="ep-qty-input"
+                   value="${tierQuantities[tier.tier_id]}"
+                   min="0"
+                   max="999"
+                   step="1"
+                   inputmode="numeric"
+                   pattern="[0-9]*"
+                   onfocus="handlePosQtyFocus(this, '${tier.tier_id}')"
+                   onclick="handlePosQtyClick(this, '${tier.tier_id}', event)"
+                   oninput="handlePosQtyInput(this, '${tier.tier_id}')"
+                   onblur="handlePosQtyBlur(this, '${tier.tier_id}')"
+                   aria-label="จำนวนบัตร ${tier.name}"
+                   style="width: 44px; text-align: center; border: none; background: transparent; font-size: 1.25rem; font-weight: 900; color: #0f172a; outline: none; -webkit-appearance: none;">
+            <button type="button" class="ep-qty-btn" onclick="updateTierQty('${tier.tier_id}', 1)" aria-label="เพิ่ม" style="width: 32px; height: 32px; border-radius: 50%; border: 1.5px solid #cbd5e1; background: #f8fafc; color: #0f172a; font-size: 1.2rem; font-weight: 900; display: flex; align-items: center; justify-content: center; cursor: pointer;">+</button>
           </div>
         </div>
       `;
@@ -178,12 +192,55 @@
     const nextVal = Math.max(0, current + delta);
     tierQuantities[tierId] = nextVal;
 
-    const qtySpan = document.getElementById(`qty_${tierId}`);
-    if (qtySpan) qtySpan.textContent = nextVal;
+    const qtyEl = document.getElementById(`qty_${tierId}`);
+    if (qtyEl) {
+      if (qtyEl.tagName === 'INPUT') qtyEl.value = nextVal;
+      else qtyEl.textContent = nextVal;
+    }
 
+    updateTierCardVisual(tierId, nextVal);
+  };
+
+  // [THEP-APAI MISSION 56: POS TIER QUANTITY INPUT HANDLERS (จิ้มแล้วเลข 0 หาย พิมพ์จำนวนได้ทันที)]
+  window.handlePosQtyFocus = function (input, tierId) {
+    input.value = '';
+    tierQuantities[tierId] = 0;
+    updateTierCardVisual(tierId, 0);
+  };
+
+  window.handlePosQtyClick = function (input, tierId, event) {
+    if (event) event.stopPropagation();
+    input.value = '';
+    tierQuantities[tierId] = 0;
+    updateTierCardVisual(tierId, 0);
+  };
+
+  window.handlePosQtyInput = function (input, tierId) {
+    const raw = input.value.trim();
+    let val = 0;
+    if (raw !== '') {
+      const parsed = parseInt(raw, 10);
+      val = isNaN(parsed) || parsed < 0 ? 0 : Math.min(parsed, 999);
+    }
+    tierQuantities[tierId] = val;
+    updateTierCardVisual(tierId, val);
+  };
+
+  window.handlePosQtyBlur = function (input, tierId) {
+    const raw = input.value.trim();
+    if (raw === '' || isNaN(raw) || parseInt(raw, 10) < 0) {
+      input.value = '0';
+      tierQuantities[tierId] = 0;
+    } else {
+      input.value = tierQuantities[tierId] || 0;
+    }
+    updateTierCardVisual(tierId, tierQuantities[tierId] || 0);
+  };
+
+  function updateTierCardVisual(tierId, qty) {
     const card = document.getElementById(`tier_card_${tierId}`);
     if (card) {
-      if (nextVal > 0) card.classList.add('selected');
+      if (qty > 0) card.classList.add('selected');
       else card.classList.remove('selected');
     }
 
@@ -191,7 +248,7 @@
     updateTotalSummary();
     calculateChange();
     if (currentPaymentMethod === 'TRANSFER') renderPromptPayQr();
-  };
+  }
 
   // ==========================================================================
   // 3. ช่องกรอกชื่อผู้เข้าชมตามจำนวนบัตร
@@ -612,8 +669,8 @@
   function resetOrderForm() {
     tierQuantities = {};
     const tiers = EventPayDB.getAll('ticket_tiers');
-    tiers.forEach((tier, index) => {
-      tierQuantities[tier.tier_id] = index === 0 ? 1 : 0;
+    tiers.forEach((tier) => {
+      tierQuantities[tier.tier_id] = 0;
     });
 
     const cashInput = document.getElementById('cashReceivedInput');
@@ -735,6 +792,11 @@
           <div>สถานะประตู: <strong style="color: var(--accent-green);">${ticket.gate_status}</strong></div>
           <div>ริสต์แบนด์: <strong>${ticket.wristband_id || 'รอผูกหน้าประตู'}</strong></div>
         </div>
+        <div style="margin-top: 12px; display: flex; justify-content: center;">
+          <button type="button" class="ep-nav-btn" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #fff; font-size: 0.85rem; font-weight: 800; padding: 8px 16px; border-radius: 6px; border: 1px solid #38bdf8; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;" onclick="savePosTicketImage('${ticket.ticket_id}')">
+            <span>💾 บันทึกบัตรใบนี้ (Save PNG)</span>
+          </button>
+        </div>
       `;
       container.appendChild(card);
 
@@ -755,6 +817,83 @@
 
     openModal('modalTickets');
   }
+
+  // [THEP-APAI MISSION 56: POS DIRECT PNG RECEIPT & TICKET SAVERS]
+  window.savePosReceiptImage = async function () {
+    if (!lastOrderResult || !lastOrderResult.order) {
+      alert('ไม่พบข้อมูลคำสั่งซื้อที่จะบันทึก');
+      return;
+    }
+    if (typeof SlipGenerator === 'undefined' || typeof SlipGenerator.generateReceiptSlipCanvas !== 'function') {
+      alert('โมดูลสร้างสลิปรูปภาพ (SlipGenerator) ยังไม่พร้อมใช้งาน');
+      return;
+    }
+    try {
+      const order = lastOrderResult.order;
+      const payment = lastOrderResult.payment || {};
+      const tickets = lastOrderResult.tickets || [];
+      const canvas = await SlipGenerator.generateReceiptSlipCanvas(order, payment, tickets);
+      const filename = `Receipt_${order.order_id || 'POS'}.png`;
+      SlipGenerator.downloadCanvasAsImage(canvas, filename);
+    } catch (err) {
+      console.error('[EventPay POS] Failed to save receipt PNG:', err);
+      alert('เกิดข้อผิดพลาดในการบันทึกรูปภาพใบเสร็จ: ' + err.message);
+    }
+  };
+
+  window.savePosTicketImage = async function (ticketId) {
+    if (!lastOrderResult || !lastOrderResult.tickets) {
+      alert('ไม่พบข้อมูลบัตร');
+      return;
+    }
+    const tickets = lastOrderResult.tickets;
+    const order = lastOrderResult.order || {};
+    const ticket = tickets.find(t => t.ticket_id === ticketId) || tickets[0];
+    if (!ticket) return;
+
+    if (typeof SlipGenerator === 'undefined' || typeof SlipGenerator.generateTicketSlipCanvas !== 'function') {
+      alert('โมดูลสร้างสลิปรูปภาพ (SlipGenerator) ยังไม่พร้อมใช้งาน');
+      return;
+    }
+    try {
+      const tIndex = tickets.findIndex(t => t.ticket_id === ticket.ticket_id) + 1;
+      const canvas = await SlipGenerator.generateTicketSlipCanvas(ticket, order, tIndex, tickets.length);
+      const filename = `Ticket_${ticket.ticket_id}.png`;
+      SlipGenerator.downloadCanvasAsImage(canvas, filename);
+    } catch (err) {
+      console.error('[EventPay POS] Failed to save ticket PNG:', err);
+      alert('เกิดข้อผิดพลาดในการบันทึกรูปภาพตั๋ว: ' + err.message);
+    }
+  };
+
+  window.saveAllPosTicketsImage = async function () {
+    if (!lastOrderResult || !lastOrderResult.tickets || lastOrderResult.tickets.length === 0) {
+      alert('ไม่พบข้อมูลบัตร');
+      return;
+    }
+    const tickets = lastOrderResult.tickets;
+    const order = lastOrderResult.order || {};
+
+    if (typeof SlipGenerator === 'undefined' || typeof SlipGenerator.generateTicketSlipCanvas !== 'function') {
+      alert('โมดูลสร้างสลิปรูปภาพ (SlipGenerator) ยังไม่พร้อมใช้งาน');
+      return;
+    }
+
+    try {
+      for (let i = 0; i < tickets.length; i++) {
+        const ticket = tickets[i];
+        const canvas = await SlipGenerator.generateTicketSlipCanvas(ticket, order, i + 1, tickets.length);
+        const filename = `Ticket_${ticket.ticket_id}.png`;
+        SlipGenerator.downloadCanvasAsImage(canvas, filename);
+        if (tickets.length > 1 && i < tickets.length - 1) {
+          await new Promise(r => setTimeout(r, 450));
+        }
+      }
+    } catch (err) {
+      console.error('[EventPay POS] Failed to save all tickets PNG:', err);
+      alert('เกิดข้อผิดพลาดในการบันทึกรูปภาพตั๋วทั้งหมด: ' + err.message);
+    }
+  };
 
   // ==========================================================================
   // 10. ระบบจัดการกะและการปิดกะ (Modal 3: Shift Closing Reconciliation)

@@ -28,7 +28,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>EventPay Admin - ศูนย์บัญชาการและตรวจสอบการเงินความปลอดภัยคอนเสิร์ต</title>
-  <link rel="stylesheet" href="css/styles.css?v=54.2">
+  <link rel="stylesheet" href="css/styles.css?v=56.0">
   <script>
     // Auto-Bridge: หากเปิดจาก Explorer (file:///) และ Master Server (Port 8080) ทำงานอยู่ ให้บริดจ์อัตโนมัติ
     (function() {
@@ -87,6 +87,15 @@
       </div>
 
       <nav class="ep-nav-links">
+        <!-- QUICK BROWSER NAVIGATION (BACK / FORWARD) -->
+        <div class="ep-history-nav" style="display: inline-flex; align-items: center; gap: 4px; background: rgba(15, 23, 42, 0.7); border: 1px solid #334155; border-radius: 8px; padding: 2px 4px;">
+          <button type="button" class="ep-nav-btn" onclick="window.history.back()" title="ย้อนกลับ (Back)" style="padding: 5px 10px; font-size: 0.82rem; font-weight: 700; background: #1e293b; border: 1px solid #475569; color: #cbd5e1; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+            <span>◀</span> ถอยหลัง
+          </button>
+          <button type="button" class="ep-nav-btn" onclick="window.history.forward()" title="ไปข้างหน้า (Forward)" style="padding: 5px 10px; font-size: 0.82rem; font-weight: 700; background: #1e293b; border: 1px solid #475569; color: #cbd5e1; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+            เดินหน้า <span>▶</span>
+          </button>
+        </div>
         <!-- QUICK PORTALS DROPDOWN -->
         <div class="ep-dropdown">
           <button type="button" class="ep-dropdown-btn">
@@ -1251,13 +1260,13 @@
   </div>
 
   <!-- CORE SCRIPTS (CACHE-BUSTING v49.0) -->
-  <script src="js/qrcode.min.js?v=54.2"></script>
-  <script src="js/audioAlertEngine.js?v=54.2"></script>
-  <script src="js/hardwareBridge.js?v=54.2"></script>
-  <script src="js/db.js?v=54.2"></script>
-  <script src="js/firebaseAdapter.js?v=54.2"></script>
-  <script src="js/authGuard.js?v=54.2"></script>
-  <script src="js/admin.js?v=54.2"></script>
+  <script src="js/qrcode.min.js?v=56.0"></script>
+  <script src="js/audioAlertEngine.js?v=56.0"></script>
+  <script src="js/hardwareBridge.js?v=56.0"></script>
+  <script src="js/db.js?v=56.0"></script>
+  <script src="js/firebaseAdapter.js?v=56.0"></script>
+  <script src="js/authGuard.js?v=56.0"></script>
+  <script src="js/admin.js?v=56.0"></script>
   <script>
     document.addEventListener('DOMContentLoaded', () => {
       if (typeof EventPayAuth !== 'undefined') {

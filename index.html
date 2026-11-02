@@ -30,7 +30,34 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>EventPay - ระบบจำหน่ายบัตรและรับเงิน คอนเสิร์ตเทพอภัย & ลิลิน 2026</title>
-  <link rel="stylesheet" href="css/styles.css?v=54.2">
+  <link rel="stylesheet" href="css/styles.css?v=56.0">
+  <style>
+    .ep-qty-input {
+      font-size: 1.25rem !important;
+      font-weight: 900 !important;
+      text-align: center !important;
+      width: 44px !important;
+      border: none !important;
+      background: transparent !important;
+      color: #0f172a !important;
+      outline: none !important;
+      -moz-appearance: textfield;
+    }
+    .ep-qty-input::-webkit-outer-spin-button,
+    .ep-qty-input::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    @media (max-width: 768px) {
+      .ep-header-inner {
+        flex-wrap: wrap !important;
+        gap: 8px !important;
+      }
+      .ep-history-nav {
+        order: 1 !important;
+      }
+    }
+  </style>
   <script>
     // Auto-Bridge: หากเปิดจาก Explorer (file:///) และ Master Server (Port 8080) ทำงานอยู่ ให้บริดจ์อัตโนมัติ
     (function() {
@@ -89,6 +116,15 @@
         </div>
       </div>
       <nav class="ep-nav-links">
+        <!-- QUICK BROWSER NAVIGATION (BACK / FORWARD) -->
+        <div class="ep-history-nav" style="display: inline-flex; align-items: center; gap: 4px; background: rgba(15, 23, 42, 0.7); border: 1px solid #334155; border-radius: 8px; padding: 2px 4px;">
+          <button type="button" class="ep-nav-btn" onclick="window.history.back()" title="ย้อนกลับ (Back)" style="padding: 5px 10px; font-size: 0.82rem; font-weight: 700; background: #1e293b; border: 1px solid #475569; color: #cbd5e1; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+            <span>◀</span> ถอยหลัง
+          </button>
+          <button type="button" class="ep-nav-btn" onclick="window.history.forward()" title="ไปข้างหน้า (Forward)" style="padding: 5px 10px; font-size: 0.82rem; font-weight: 700; background: #1e293b; border: 1px solid #475569; color: #cbd5e1; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+            เดินหน้า <span>▶</span>
+          </button>
+        </div>
         <!-- CASHIER MASTER DROPDOWN -->
         <div class="ep-dropdown">
           <button type="button" class="ep-dropdown-btn">
@@ -388,6 +424,9 @@
         <button type="button" class="ep-btn-submit" style="width: auto; padding: 10px 18px; font-size: 0.92rem; background: #10b981; color: #000; font-weight: 800;" onclick="printThermalReceiptAndTickets()">
           🖨️ พิมพ์ใบเสร็จ + ตั๋ว QR (ตัดแยกใบ Auto)
         </button>
+        <button type="button" class="ep-nav-btn" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #fff; font-weight: 800; border: 1px solid #38bdf8; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);" onclick="savePosReceiptImage()">
+          💾 บันทึกใบเสร็จ (Save PNG)
+        </button>
         <button type="button" class="ep-nav-btn" style="background: var(--accent-gold); color: #000; font-weight: 700;" onclick="viewIssuedTicketsFromReceipt()">
           🎟️ ดูตั๋ว QR บนหน้าจอ
         </button>
@@ -410,9 +449,12 @@
       <div class="ep-modal-body" id="ticketsListContainer">
         <!-- Ticket passes dynamically generated -->
       </div>
-      <div class="ep-modal-footer">
+      <div class="ep-modal-footer" style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;">
         <button type="button" class="ep-btn-submit" style="width: auto; padding: 10px 18px; font-size: 0.92rem; background: #10b981; color: #000; font-weight: 800;" onclick="printThermalReceiptAndTickets()">
           🖨️ สั่งพิมพ์กระดาษ 80 มม. (Auto-Cut)
+        </button>
+        <button type="button" class="ep-nav-btn" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #000; font-weight: 800; border: none; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);" onclick="saveAllPosTicketsImage()">
+          📥 บันทึกตั๋ว QR ทุกใบ (Save PNG)
         </button>
         <a href="kiosk.html" class="ep-nav-btn btn-kiosk" target="_blank">🚪 เปิดหน้าตู้ Kiosk ทางเข้าเพื่อทดสอบสแกน</a>
         <button type="button" class="ep-nav-btn" onclick="closeModal('modalTickets')">ปิด</button>
@@ -481,7 +523,7 @@
           <button type="button" class="ep-nav-btn" style="width: 100%; margin-top: 8px; justify-content: center;" onclick="submitCashPayout()">บันทึกรายจ่ายเงินสด</button>
         </div>
       </div>
-      <div class="ep-modal-footer">
+      <div class="ep-modal-footer" style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;">
         <button type="button" class="ep-nav-btn" style="background: var(--accent-red); color: #fff;" onclick="submitCloseShift()">🔒 ดำเนินการปิดกะเงินสด</button>
         <button type="button" class="ep-nav-btn" onclick="closeModal('modalShift')">ปิด</button>
       </div>
@@ -500,7 +542,7 @@
       <div class="ep-modal-body" id="ordersListContainer">
         <!-- Orders list dynamically populated -->
       </div>
-      <div class="ep-modal-footer">
+      <div class="ep-modal-footer" style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;">
         <button type="button" class="ep-nav-btn" onclick="closeModal('modalOrders')">ปิด</button>
       </div>
     </div>
@@ -518,13 +560,14 @@
   </div>
 
   <!-- CORE SCRIPTS (CACHE-BUSTING v49.0) -->
-  <script src="js/qrcode.min.js?v=54.2"></script>
-  <script src="js/audioAlertEngine.js?v=54.2"></script>
-  <script src="js/hardwareBridge.js?v=54.2"></script>
-  <script src="js/db.js?v=54.2"></script>
-  <script src="js/firebaseAdapter.js?v=54.2"></script>
-  <script src="js/authGuard.js?v=54.2"></script>
-  <script src="js/ticketing.js?v=54.2"></script>
+  <script src="js/qrcode.min.js?v=56.0"></script>
+  <script src="js/audioAlertEngine.js?v=56.0"></script>
+  <script src="js/hardwareBridge.js?v=56.0"></script>
+  <script src="js/db.js?v=56.0"></script>
+  <script src="js/firebaseAdapter.js?v=56.0"></script>
+  <script src="js/authGuard.js?v=56.0"></script>
+  <script src="js/slipGenerator.js?v=56.0"></script>
+  <script src="js/ticketing.js?v=56.0"></script>
   <script>
     function initDropdowns() {
       document.addEventListener('click', (e) => {
